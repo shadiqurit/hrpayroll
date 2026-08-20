@@ -1,0 +1,71 @@
+DROP TABLE HRMS.EMP_GUARANTORS CASCADE CONSTRAINTS;
+
+CREATE TABLE HRMS.EMP_GUARANTORS
+(
+  ID                NUMBER,
+  EMP_ID            NUMBER,
+  NAME              VARCHAR2(100 BYTE),
+  RELATIONSHIP      VARCHAR2(100 BYTE),
+  CONTACT_DETAILS   VARCHAR2(255 BYTE),
+  ADDRESS           VARCHAR2(100 BYTE),
+  P_POST            NUMBER,
+  P_THANA           NUMBER,
+  P_DISTRICT        NUMBER,
+  P_DIVISION        NUMBER,
+  EMPCODE           VARCHAR2(150 BYTE),
+  GRNT_NM           VARCHAR2(150 BYTE),
+  GRNT_FATHER       VARCHAR2(150 BYTE),
+  GRNT_ADD1         VARCHAR2(300 BYTE),
+  GRNT_ADD2         VARCHAR2(300 BYTE),
+  GRNT_RELE         VARCHAR2(150 BYTE),
+  GRNT_NATIONALITY  VARCHAR2(45 BYTE),
+  GRNT_PROFFESSION  VARCHAR2(30 BYTE),
+  GRNT_BUSINES_ADD  VARCHAR2(300 BYTE),
+  GRNT_NID          VARCHAR2(90 BYTE),
+  GRNT_OFF_PHON     VARCHAR2(60 BYTE),
+  GRNT_PASSPORT_NO  VARCHAR2(150 BYTE),
+  GRNT_RES_PHONE    VARCHAR2(60 BYTE),
+  GRNT_MOBILE       VARCHAR2(150 BYTE),
+  REMARKS           VARCHAR2(100 BYTE),
+  ENT_BY            NUMBER,
+  ENT_DATE          DATE,
+  UPD_BY            NUMBER,
+  UPD_DATE          DATE,
+  ADDRESS2          VARCHAR2(100 BYTE),
+  POST              NUMBER,
+  THANA             NUMBER,
+  DISTRICT          NUMBER,
+  DIVISION          NUMBER,
+  IS_SAME_ADD       VARCHAR2(1 BYTE)
+)
+TABLESPACE HRMS
+PCTUSED    0
+PCTFREE    10
+INITRANS   1
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           )
+LOGGING 
+NOCOMPRESS 
+NOCACHE;
+
+
+CREATE OR REPLACE TRIGGER HRMS.trg_emp_guarantors_same_add
+BEFORE INSERT OR UPDATE ON HRMS.EMP_GUARANTORS
+FOR EACH ROW
+BEGIN
+  IF :NEW.is_same_add = 'Y' THEN
+    :NEW.address     := :NEW.address2;
+    :NEW.p_post      := :NEW.post;
+    :NEW.p_thana     := :NEW.thana;
+    :NEW.p_district  := :NEW.district;
+    :NEW.p_division  := :NEW.division;
+  END IF;
+END;
+/

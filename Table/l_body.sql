@@ -1,0 +1,25 @@
+DROP TABLE HRMS.L_BODY CASCADE CONSTRAINTS;
+
+CREATE TABLE HRMS.L_BODY
+(
+  ID           NUMBER,
+  L_TEXT       VARCHAR2(4000 BYTE),
+  REASON_CODE  NUMBER,
+  LOC_ID       NUMBER
+)
+TABLESPACE HRMS
+PCTUSED    0
+PCTFREE    10
+INITRANS   1
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           )
+LOGGING 
+NOCOMPRESS 
+NOCACHE;

@@ -1,0 +1,86 @@
+DROP TABLE HRMS.LEAVE_ALLOCATION CASCADE CONSTRAINTS;
+
+CREATE TABLE HRMS.LEAVE_ALLOCATION
+(
+  ALLOCATION_ID    NUMBER,
+  EMPID            NUMBER                       NOT NULL,
+  LEAVE_TYPE_ID    NUMBER,
+  ALLOCATED_DAYS   NUMBER                       NOT NULL,
+  ALLOCATION_YEAR  NUMBER,
+  ALLOCATED_DATE   DATE                         DEFAULT SYSDATE,
+  ENT_DATE         DATE                         DEFAULT SYSDATE,
+  ENT_BY           NUMBER,
+  UPD_DATE         DATE,
+  UPD_BY           NUMBER,
+  COM_ID           NUMBER
+)
+TABLESPACE HRMS
+PCTUSED    0
+PCTFREE    10
+INITRANS   1
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           )
+LOGGING 
+NOCOMPRESS 
+NOCACHE;
+
+
+ALTER TABLE HRMS.LEAVE_ALLOCATION ADD (
+  PRIMARY KEY
+  (ALLOCATION_ID)
+  USING INDEX
+    TABLESPACE HRMS
+    PCTFREE    10
+    INITRANS   2
+    MAXTRANS   255
+    STORAGE    (
+                INITIAL          64K
+                NEXT             1M
+                MINEXTENTS       1
+                MAXEXTENTS       UNLIMITED
+                PCTINCREASE      0
+                BUFFER_POOL      DEFAULT
+               )
+  ENABLE VALIDATE);
+
+
+--  There is no statement for index HRMS.SYS_C0020271.
+--  The object is created when the parent object is created.
+
+DROP SEQUENCE HRMS.HR_LEAVE_ALLOCATION_SEQ;
+
+CREATE SEQUENCE HRMS.HR_LEAVE_ALLOCATION_SEQ
+  START WITH 11701
+  MAXVALUE 9999999999999999999999999999
+  MINVALUE 1
+  NOCYCLE
+  CACHE 20
+  NOORDER
+  NOKEEP
+  NOSCALE
+  GLOBAL;
+
+
+CREATE OR REPLACE TRIGGER HRMS.trg_hr_leave_allocation
+    BEFORE INSERT ON HRMS.LEAVE_ALLOCATION
+    FOR EACH ROW
+BEGIN
+    :NEW.allocation_id := hr_leave_allocation_seq.NEXTVAL;    
+END;
+/
+
+
+ALTER TABLE HRMS.LEAVE_ALLOCATION ADD (
+  FOREIGN KEY (EMPID) 
+  REFERENCES HRMS.EMPLOYEES (ID)
+  ENABLE VALIDATE
+,  FOREIGN KEY (LEAVE_TYPE_ID) 
+  REFERENCES HRMS.LEAVE_TYPES (LT_ID)
+  ENABLE VALIDATE);

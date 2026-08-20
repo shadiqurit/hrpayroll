@@ -1,0 +1,166 @@
+DROP TABLE HRMS.PAY_SCALE_MASTER CASCADE CONSTRAINTS;
+
+CREATE TABLE HRMS.PAY_SCALE_MASTER
+(
+  SCALE_ID         NUMBER,
+  GRADE_ID         NUMBER                       NOT NULL,
+  REVISION_NO      NUMBER(3)                    DEFAULT 1,
+  REVISION_NAME    VARCHAR2(100 BYTE),
+  START_BASIC      NUMBER(10,2)                 NOT NULL,
+  INCREMENT_1      NUMBER(10,2)                 NOT NULL,
+  STEPS_BEFORE_EB  NUMBER(3)                    DEFAULT 10                    NOT NULL,
+  EB_BASIC         NUMBER(10,2)                 NOT NULL,
+  INCREMENT_2      NUMBER(10,2)                 NOT NULL,
+  STEPS_AFTER_EB   NUMBER(3)                    DEFAULT 15                    NOT NULL,
+  MAX_BASIC        NUMBER(10,2)                 NOT NULL,
+  IS_ACTIVE        VARCHAR2(1 BYTE)             DEFAULT 'Y'                   NOT NULL,
+  EFFECTIVE_FROM   DATE,
+  EFFECTIVE_TO     DATE,
+  APPROVED_BY      NUMBER,
+  APPROVED_DATE    DATE,
+  CREATED_BY       NUMBER,
+  CREATED_DATE     DATE                         DEFAULT SYSDATE,
+  UPDATED_BY       NUMBER,
+  UPDATED_DATE     DATE,
+  HR               NUMBER,
+  CPF              NUMBER,
+  PFCONT           NUMBER,
+  CONV             NUMBER,
+  MEDICAL          NUMBER,
+  ALLOWANCE        NUMBER,
+  SAF              NUMBER
+)
+TABLESPACE HRMS
+PCTUSED    0
+PCTFREE    10
+INITRANS   1
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           )
+LOGGING 
+NOCOMPRESS 
+NOCACHE;
+
+
+CREATE UNIQUE INDEX HRMS.PAY_SCALE_MASTER_PK ON HRMS.PAY_SCALE_MASTER
+(SCALE_ID)
+LOGGING
+TABLESPACE HRMS
+PCTFREE    10
+INITRANS   2
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           );
+CREATE UNIQUE INDEX HRMS.UK_GRADE_REVISION ON HRMS.PAY_SCALE_MASTER
+(GRADE_ID, REVISION_NO)
+LOGGING
+TABLESPACE HRMS
+PCTFREE    10
+INITRANS   2
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           );
+
+ALTER TABLE HRMS.PAY_SCALE_MASTER ADD (
+  CONSTRAINT CHK_SCALE_ACTIVE
+  CHECK (is_active IN ('Y','N'))
+  ENABLE VALIDATE
+,  CONSTRAINT CHK_SCALE_INCREMENT_POSITIVE
+  CHECK (increment_1 > 0 AND increment_2 > 0)
+  ENABLE VALIDATE
+,  CONSTRAINT CHK_SCALE_STEP_SPLIT_POSITIVE
+  CHECK (steps_before_eb > 0 AND steps_after_eb > 0)
+  ENABLE VALIDATE
+,  CONSTRAINT CHK_SCALE_TOTAL_25_STEPS
+  CHECK (steps_before_eb + steps_after_eb = 25)
+  ENABLE VALIDATE
+,  CONSTRAINT CHK_SCALE_EB_BASIC_FORMULA
+  CHECK (eb_basic = start_basic + (increment_1 * steps_before_eb))
+  ENABLE VALIDATE
+,  CONSTRAINT CHK_SCALE_MAX_BASIC_FORMULA
+  CHECK (max_basic = eb_basic + (increment_2 * steps_after_eb))
+  ENABLE VALIDATE
+,  CONSTRAINT CHK_SCALE_DATES
+  CHECK (effective_to IS NULL OR effective_to >= effective_from)
+  ENABLE VALIDATE
+,  CONSTRAINT PAY_SCALE_MASTER_PK
+  PRIMARY KEY
+  (SCALE_ID)
+  USING INDEX HRMS.PAY_SCALE_MASTER_PK
+  ENABLE VALIDATE
+,  CONSTRAINT UK_GRADE_REVISION
+  UNIQUE (GRADE_ID, REVISION_NO)
+  USING INDEX HRMS.UK_GRADE_REVISION
+  ENABLE VALIDATE);
+
+
+CREATE INDEX HRMS.IDX_SCALE_ACTIVE ON HRMS.PAY_SCALE_MASTER
+(IS_ACTIVE)
+LOGGING
+TABLESPACE HRMS
+PCTFREE    10
+INITRANS   2
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           );
+
+CREATE INDEX HRMS.IDX_SCALE_GRADE_ACTIVE ON HRMS.PAY_SCALE_MASTER
+(GRADE_ID, IS_ACTIVE)
+LOGGING
+TABLESPACE HRMS
+PCTFREE    10
+INITRANS   2
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           );
+
+CREATE OR REPLACE TRIGGER HRMS.t_pay_scale_master_pk
+    BEFORE INSERT OR UPDATE
+    ON HRMS.PAY_SCALE_MASTER
+    FOR EACH ROW
+BEGIN
+    IF :new.scale_id IS NULL
+    THEN
+        SELECT NVL (MAX (scale_id), 0) + 1
+          INTO :new.scale_id
+          FROM pay_scale_master;
+    END IF;
+END t_pay_scale_master_pk;
+/
+
+
+ALTER TABLE HRMS.PAY_SCALE_MASTER ADD (
+  CONSTRAINT FK_SCALE_GRADE 
+  FOREIGN KEY (GRADE_ID) 
+  REFERENCES HRMS.JOB_GRADES (ID)
+  ENABLE VALIDATE);

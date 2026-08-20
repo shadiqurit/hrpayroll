@@ -1,0 +1,135 @@
+DROP TABLE HRMS.EMP_NOMINEE CASCADE CONSTRAINTS;
+
+CREATE TABLE HRMS.EMP_NOMINEE
+(
+  ID               NUMBER,
+  EMP_ID           NUMBER,
+  NOMINEE_NAME     VARCHAR2(100 BYTE),
+  RELATIONSHIP     VARCHAR2(100 BYTE),
+  CONTACT_DETAILS  VARCHAR2(255 BYTE),
+  ADDRESS          VARCHAR2(100 BYTE),
+  P_POST           NUMBER,
+  P_THANA          NUMBER,
+  P_DISTRICT       NUMBER,
+  P_DIVISION       NUMBER,
+  REMARKS          VARCHAR2(100 BYTE),
+  NID              VARCHAR2(30 BYTE),
+  DOB              DATE,
+  PRC              NUMBER,
+  PIC              BLOB,
+  NIDA             BLOB,
+  ACN              BLOB,
+  ENT_BY           NUMBER,
+  ENT_DATE         DATE,
+  UPD_BY           NUMBER,
+  UPD_DATE         DATE,
+  M_GURDIAN        VARCHAR2(50 BYTE),
+  M_REL            VARCHAR2(50 BYTE),
+  M_NID            VARCHAR2(30 BYTE),
+  M_CONTACT        VARCHAR2(30 BYTE)
+)
+LOB (ACN) STORE AS SECUREFILE (
+  TABLESPACE  HRMS
+  ENABLE      STORAGE IN ROW
+  CHUNK       8192
+  RETENTION
+  NOCACHE
+  LOGGING
+  STORAGE    (
+              INITIAL          104K
+              NEXT             1M
+              MINEXTENTS       1
+              MAXEXTENTS       UNLIMITED
+              PCTINCREASE      0
+              BUFFER_POOL      DEFAULT
+             ))
+LOB (NIDA) STORE AS SECUREFILE (
+  TABLESPACE  HRMS
+  ENABLE      STORAGE IN ROW
+  CHUNK       8192
+  RETENTION
+  NOCACHE
+  LOGGING
+  STORAGE    (
+              INITIAL          104K
+              NEXT             1M
+              MINEXTENTS       1
+              MAXEXTENTS       UNLIMITED
+              PCTINCREASE      0
+              BUFFER_POOL      DEFAULT
+             ))
+LOB (PIC) STORE AS SECUREFILE (
+  TABLESPACE  HRMS
+  ENABLE      STORAGE IN ROW
+  CHUNK       8192
+  RETENTION
+  NOCACHE
+  LOGGING
+  STORAGE    (
+              INITIAL          104K
+              NEXT             1M
+              MINEXTENTS       1
+              MAXEXTENTS       UNLIMITED
+              PCTINCREASE      0
+              BUFFER_POOL      DEFAULT
+             ))
+TABLESPACE HRMS
+PCTUSED    0
+PCTFREE    10
+INITRANS   1
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           )
+LOGGING 
+NOCOMPRESS 
+NOCACHE;
+
+
+CREATE UNIQUE INDEX HRMS.PK_EMP_NOMINEE ON HRMS.EMP_NOMINEE
+(ID)
+LOGGING
+TABLESPACE HRMS
+PCTFREE    10
+INITRANS   2
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           );
+
+ALTER TABLE HRMS.EMP_NOMINEE ADD (
+  CONSTRAINT PK_EMP_NOMINEE
+  PRIMARY KEY
+  (ID)
+  USING INDEX HRMS.PK_EMP_NOMINEE
+  ENABLE VALIDATE);
+
+
+CREATE OR REPLACE TRIGGER HRMS.TRG_EMP_NOMINEE_PK
+    BEFORE INSERT OR UPDATE
+    ON HRMS.EMP_NOMINEE
+    FOR EACH ROW
+BEGIN
+    IF :new.id IS NULL
+    THEN
+        SELECT NVL (MAX (id), 0) + 1 INTO :new.id FROM EMP_NOMINEE;
+    END IF;
+END TRG_EMP_NOMINEE_PK;
+/
+
+
+ALTER TABLE HRMS.EMP_NOMINEE ADD (
+  CONSTRAINT FK_EMP_ID_NOMINEE 
+  FOREIGN KEY (EMP_ID) 
+  REFERENCES HRMS.EMPLOYEES (ID)
+  ENABLE VALIDATE);

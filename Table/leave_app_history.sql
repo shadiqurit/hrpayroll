@@ -1,0 +1,52 @@
+DROP TABLE HRMS.LEAVE_APP_HISTORY CASCADE CONSTRAINTS;
+
+CREATE TABLE HRMS.LEAVE_APP_HISTORY
+(
+  ID               NUMBER                       NOT NULL,
+  LEAVE_ID         NUMBER,
+  APPROVER_LEVEL   VARCHAR2(50 BYTE),
+  APPROVER_ID      NUMBER,
+  APPROVAL_DATE    DATE,
+  APPROVAL_STATUS  VARCHAR2(50 BYTE),
+  COMMENTS         VARCHAR2(300 BYTE),
+  COM_ID           NUMBER,
+  ENT_DATE         DATE                         DEFAULT SYSDATE,
+  ENT_BY           NUMBER,
+  UPD_DATE         DATE,
+  UPD_BY           NUMBER
+)
+TABLESPACE HRMS
+PCTUSED    0
+PCTFREE    10
+INITRANS   1
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           )
+LOGGING 
+NOCOMPRESS 
+NOCACHE;
+
+
+CREATE OR REPLACE TRIGGER HRMS.trg_leave_app_history_pk
+    BEFORE INSERT OR UPDATE
+    ON HRMS.leave_app_history
+    FOR EACH ROW
+BEGIN
+    IF :new.id IS NULL
+    THEN
+        SELECT NVL (MAX (id), 0) + 1 INTO :new.id FROM leave_app_history;
+    END IF;
+END;
+/
+
+
+ALTER TABLE HRMS.LEAVE_APP_HISTORY ADD (
+  FOREIGN KEY (LEAVE_ID) 
+  REFERENCES HRMS.LEAVE_REQUEST (LEAVE_ID)
+  ENABLE VALIDATE);

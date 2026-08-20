@@ -1,0 +1,65 @@
+DROP TABLE HRMS.HR_EMPLOYEE_CAREER_HIST CASCADE CONSTRAINTS;
+
+CREATE TABLE HRMS.HR_EMPLOYEE_CAREER_HIST
+(
+  CAREER_HIST_ID   NUMBER GENERATED ALWAYS AS IDENTITY ( START WITH 4941 MAXVALUE 9999999999999999999999999999 MINVALUE 1 NOCYCLE CACHE 20 NOORDER NOKEEP NOSCALE) NOT NULL,
+  EMP_ID           NUMBER                       NOT NULL,
+  ACTION_ID        NUMBER,
+  ACTION_TYPE      VARCHAR2(30 BYTE),
+  EFFECTIVE_DATE   DATE,
+  OLD_EMP_TYPE_ID  NUMBER,
+  NEW_EMP_TYPE_ID  NUMBER,
+  OLD_JOB_ID       NUMBER,
+  NEW_JOB_ID       NUMBER,
+  OLD_DESIG_ID     NUMBER,
+  NEW_DESIG_ID     NUMBER,
+  OLD_DEPT_ID      NUMBER,
+  NEW_DEPT_ID      NUMBER,
+  REMARKS          VARCHAR2(1000 BYTE),
+  ENT_BY           NUMBER,
+  ENT_DATE         DATE                         DEFAULT SYSDATE
+)
+TABLESPACE HRMS
+PCTUSED    0
+PCTFREE    10
+INITRANS   1
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           )
+LOGGING 
+NOCOMPRESS 
+NOCACHE;
+
+
+ALTER TABLE HRMS.HR_EMPLOYEE_CAREER_HIST ADD (
+  PRIMARY KEY
+  (CAREER_HIST_ID)
+  USING INDEX
+    TABLESPACE HRMS
+    PCTFREE    10
+    INITRANS   2
+    MAXTRANS   255
+    STORAGE    (
+                INITIAL          64K
+                NEXT             1M
+                MINEXTENTS       1
+                MAXEXTENTS       UNLIMITED
+                PCTINCREASE      0
+                BUFFER_POOL      DEFAULT
+               )
+  ENABLE VALIDATE);
+
+
+DROP SEQUENCE HRMS.ISEQ$$_226107;
+
+-- Sequence ISEQ$$_226107 is created automatically by Oracle for use with an Identity column
+
+
+--  There is no statement for index HRMS.SYS_C0024998.
+--  The object is created when the parent object is created.

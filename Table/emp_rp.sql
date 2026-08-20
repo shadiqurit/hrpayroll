@@ -1,0 +1,73 @@
+DROP TABLE HRMS.EMP_RP CASCADE CONSTRAINTS;
+
+CREATE TABLE HRMS.EMP_RP
+(
+  ID             NUMBER,
+  EMP_ID         NUMBER,
+  REP_PERSON_ID  NUMBER,
+  STATUS         VARCHAR2(10 BYTE)              DEFAULT 'ACTIVE',
+  ENT_DATE       DATE                           DEFAULT SYSDATE,
+  ENT_BY         NUMBER,
+  UPD_DATE       DATE,
+  UPD_BY         NUMBER
+)
+TABLESPACE HRMS
+PCTUSED    0
+PCTFREE    10
+INITRANS   1
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           )
+LOGGING 
+NOCOMPRESS 
+NOCACHE;
+
+
+CREATE UNIQUE INDEX HRMS.EMP_RP_PK ON HRMS.EMP_RP
+(ID)
+LOGGING
+TABLESPACE HRMS
+PCTFREE    10
+INITRANS   2
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           );
+
+ALTER TABLE HRMS.EMP_RP ADD (
+  CONSTRAINT EMP_RP_PK
+  PRIMARY KEY
+  (ID)
+  USING INDEX HRMS.EMP_RP_PK
+  ENABLE VALIDATE);
+
+
+CREATE OR REPLACE TRIGGER HRMS.trg_emp_rp_pk
+    BEFORE INSERT OR UPDATE
+    ON HRMS.EMP_RP
+    FOR EACH ROW
+BEGIN
+    IF :new.id IS NULL
+    THEN
+        SELECT NVL (MAX (id), 0) + 1 INTO :new.id FROM emp_rp;
+    END IF;
+END trg_emp_rp_pk;
+/
+
+
+ALTER TABLE HRMS.EMP_RP ADD (
+  CONSTRAINT EMP_RP_R01 
+  FOREIGN KEY (EMP_ID) 
+  REFERENCES HRMS.EMPLOYEES (ID)
+  ENABLE VALIDATE);
