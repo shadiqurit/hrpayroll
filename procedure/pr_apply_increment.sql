@@ -3,7 +3,7 @@ CREATE OR REPLACE PROCEDURE HRMS.pr_apply_increment (
     p_effective_date   IN DATE,
     p_remarks          IN VARCHAR2,
     p_user_id          IN NUMBER,
-    p_increment_id     IN NUMBER DEFAULT NULL
+    p_increment_id     IN NUMBER
 )
 IS
     v_action_id       NUMBER;
@@ -57,32 +57,36 @@ BEGIN
 
     v_increment_id := p_increment_id;
 
-    IF v_increment_id IS NOT NULL THEN
-        SELECT due_date,
-               NVL(revised_effective_date, effective_date),
-               status
-          INTO v_due_date,
-               v_master_eff_date,
-               v_cycle_status
-          FROM hr_employee_increment
-         WHERE increment_id = v_increment_id
-           AND emp_id = p_emp_id
-         FOR UPDATE;
+    IF v_increment_id IS NULL THEN
+        RAISE_APPLICATION_ERROR(-20010,
+            'Increment occurrence ID is required. Generate the monthly list first.');
+    END IF;
 
-        IF v_cycle_status = 'HOLD' THEN
-            RAISE_APPLICATION_ERROR(-20005,
-                'Increment is currently on hold.');
-        END IF;
+    SELECT due_date,
+           NVL(revised_effective_date, effective_date),
+           status
+      INTO v_due_date,
+           v_master_eff_date,
+           v_cycle_status
+      FROM hr_employee_increment
+     WHERE increment_id = v_increment_id
+       AND emp_id = p_emp_id
+     FOR UPDATE;
 
-        IF v_cycle_status IN ('POSTED', 'CANCELLED') THEN
-            RAISE_APPLICATION_ERROR(-20006,
-                'This increment cycle is already posted or cancelled.');
-        END IF;
+    IF v_cycle_status IN ('HOLD', 'PUNISHMENT') THEN
+        RAISE_APPLICATION_ERROR(-20005,
+            'Increment is currently on temporary or punishment hold.');
+    END IF;
 
-        IF TRUNC(v_master_eff_date) <> TRUNC(p_effective_date) THEN
-            RAISE_APPLICATION_ERROR(-20007,
-                'Effective date does not match the approved/revised increment date.');
-        END IF;
+    IF v_cycle_status <> 'READY' THEN
+        RAISE_APPLICATION_ERROR(-20006,
+            'Only a READY increment occurrence can be posted. Current status: '
+            || v_cycle_status);
+    END IF;
+
+    IF TRUNC(v_master_eff_date) <> TRUNC(p_effective_date) THEN
+        RAISE_APPLICATION_ERROR(-20007,
+            'Effective date does not match the approved/revised increment date.');
     END IF;
 
     IF TRUNC(p_effective_date) > TRUNC(SYSDATE) THEN
@@ -145,43 +149,15 @@ BEGIN
             'Invalid pay scale: total pre-EB and post-EB increments must equal 25.');
     END IF;
 
-    IF v_increment_id IS NULL THEN
-        INSERT INTO hr_employee_increment (
-            emp_id,
-            due_date,
-            effective_date,
-            old_basic,
-            proposed_basic,
-            old_gross,
-            increment_amount,
-            status,
-            remarks,
-            created_by
-        )
-        VALUES (
-            p_emp_id,
-            NVL(v_due_date, p_effective_date),
-            p_effective_date,
-            v_old_basic,
-            v_new_basic,
-            v_old_gross,
-            v_new_basic - v_old_basic,
-            'READY',
-            p_remarks,
-            p_user_id
-        )
-        RETURNING increment_id INTO v_increment_id;
-    ELSE
-        UPDATE hr_employee_increment
-           SET old_basic        = v_old_basic,
-               proposed_basic   = v_new_basic,
-               old_gross        = v_old_gross,
-               increment_amount = v_new_basic - v_old_basic,
-               remarks          = p_remarks,
-               updated_by       = p_user_id,
-               updated_date     = SYSDATE
-         WHERE increment_id = v_increment_id;
-    END IF;
+    UPDATE hr_employee_increment
+       SET old_basic        = v_old_basic,
+           proposed_basic   = v_new_basic,
+           old_gross        = v_old_gross,
+           increment_amount = v_new_basic - v_old_basic,
+           remarks          = p_remarks,
+           updated_by       = p_user_id,
+           updated_date     = SYSDATE
+     WHERE increment_id = v_increment_id;
 
     INSERT INTO hr_employee_action (
         emp_id,

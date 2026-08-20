@@ -1,6 +1,6 @@
 # Simple Annual Increment Module — Four Oracle APEX Pages
 
-**This design supersedes the earlier 500–522 page map.** The detailed database/history principles remain valid, but the user workflow is reduced to Pages 500–503.
+This is the single authoritative design guide for the increment module. The complete user workflow uses Pages 500–503.
 
 ## 1. Final page map
 
@@ -11,7 +11,7 @@
 | 502 | Increment Letter Center | Generate and manage letters for processed increments |
 | 503 | Print Increment Letter | Clean printable/PDF letter page |
 
-No separate cycle wizard, approval inbox, hold page, processing page, or salary comparison page is required. Page 500 contains the complete operational process.
+Page 500 contains the complete operational process; Pages 501–503 provide the register and letter output.
 
 ---
 
@@ -353,7 +353,6 @@ Row actions:
 - View status timeline;
 - Open salary comparison drawer/region;
 - Open Page 502 for letter;
-- privileged reversal action if enabled.
 
 No editable columns are allowed.
 

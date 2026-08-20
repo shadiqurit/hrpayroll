@@ -293,7 +293,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
              WHERE e.com_id = p_com_id
                AND TO_CHAR(e.emp_type) = '2'
                AND e.conf_date IS NOT NULL
-               AND e.next_increment_date BETWEEN v_period_from AND v_period_to
+               AND TRUNC(e.next_increment_date) BETWEEN v_period_from AND v_period_to
                AND NOT EXISTS (
                      SELECT 1
                        FROM hr_employee_increment i
@@ -326,8 +326,8 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
                 TRUNC(p_list_date),
                 TRUNC(p_list_date),
                 v_salary_month,
-                r.due_date,
-                r.due_date,
+                TRUNC(r.due_date),
+                TRUNC(r.due_date),
                 r.old_basic,
                 r.old_basic,
                 r.old_gross,
