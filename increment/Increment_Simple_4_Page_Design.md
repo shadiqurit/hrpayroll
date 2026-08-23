@@ -6,8 +6,8 @@ This is the single authoritative design guide for the increment module. The comp
 
 | Page | Name | Purpose |
 |---:|---|---|
-| 500 | Monthly Increment Workbench | Generate monthly list, decide ready/temporary hold/punishment, release holds, and perform final processing |
-| 501 | Increment Register | Search all ready, held, punishment, processed, forfeited, failed, and reversed increments |
+| 500 | Monthly Increment Workbench | Generate monthly list, decide ready/temporary hold/punishment, release holds, and finally update live salary |
+| 501 | Increment Register | Search all increments and safely revert a posted increment when authorized |
 | 502 | Increment Letter Center | Generate and manage letters for processed increments |
 | 503 | Print Increment Letter | Clean printable/PDF letter page |
 
@@ -61,8 +61,8 @@ Rules:
 
 | Status | Meaning |
 |---|---|
-| `DRAFT` | Generated but not reviewed |
-| `READY` | Reviewed and ready for final posting |
+| `DRAFT` | Reopened for correction or awaiting recalculation |
+| `READY` | Eligible by default and ready for final posting unless HR records an exception |
 | `HOLD` | Temporary hold |
 | `PUNISHMENT` | Punishment delay awaiting payable date/release |
 | `FORFEITED` | Punishment forfeiture completed without salary update |
@@ -88,7 +88,12 @@ This is the only operational page. HR generates the list, reviews employees, ass
 | `P500_PERIOD_TO` | Display Only | `TRUNC(P500_LIST_DATE,'MM')-1` |
 | `P500_SALARY_MONTH` | Display Only | `YYYYMM` from list date |
 | `P500_VIEW_MODE` | Radio | `ALL`, `NEW_DUE`, `CARRY_FORWARD`, `READY`, `HOLD`, `PUNISHMENT`, `ERROR` |
-| `P500_SELECTED_COUNT` | Display Only | Selected grid rows |
+| `P500_ACTION_CODE` | Select List | Default `READY`; action for checked report rows |
+| `P500_ACTION_REMARKS` | Textarea | Reason/audit remarks for the selected action |
+| `P500_REVIEW_DATE` | Date Picker | Used for temporary hold |
+| `P500_REVISED_EFFECTIVE_DATE` | Date Picker | Required for punishment delay |
+| `P500_PUNISHMENT_REF_NO` | Text Field | Required for punishment actions |
+| `P500_FORFEIT_CONFIRM` | Checkbox | Required for punishment forfeit |
 
 Header text example:
 
@@ -113,9 +118,11 @@ Salary month: August 2026
 
 Cards refresh after every action and act as worklist filters.
 
-### 4.4 Main Interactive Grid
+### 4.4 Main Interactive Report
 
-The grid is read-only except for the selection checkbox. Status and salary amounts are never edited directly.
+Use an Interactive Report, not an editable grid. The first report column is an
+`APEX_ITEM.CHECKBOX2` selector. Salary, step, status and date columns remain
+read-only; all changes go through the package process.
 
 Columns:
 
@@ -150,7 +157,12 @@ Default order:
 Recommended Page 500 report source:
 
 ```sql
-SELECT i.increment_id,
+SELECT APEX_ITEM.CHECKBOX2(
+           p_idx        => 1,
+           p_value      => i.increment_id,
+           p_attributes => 'class="inc-select"'
+       ) AS select_row,
+       i.increment_id,
        CASE
          WHEN i.original_list_date = i.current_list_date THEN 'NEW'
          ELSE 'CARRY'
@@ -182,36 +194,48 @@ SELECT i.increment_id,
        LEFT JOIN departments dp ON dp.id = e.dept_id
        LEFT JOIN designations d ON d.id = e.desig_id
  WHERE i.com_id = :P500_COM_ID
-   AND i.current_list_date = :P500_LIST_DATE
+   AND i.current_list_date =
+       TRUNC(TO_DATE(:P500_LIST_DATE, 'DD-MON-YYYY'))
    AND i.status NOT IN ('POSTED','FORFEITED','CANCELLED','REVERSED',
                         'CLOSED_NO_INCREMENT')
 ```
 
-Apply `P500_VIEW_MODE` as a server-side filter or through saved Interactive Grid reports. Never concatenate item values into dynamic SQL.
+Set `SELECT_ROW` to **Escape Special Characters = No**, and disable sorting,
+filtering and hiding for that column. Hide `INCREMENT_ID`. `APEX_APPLICATION.G_F01`
+contains the checked increment IDs after submit. Checkbox selections apply only
+to rows rendered on the current report page.
+
+Apply `P500_VIEW_MODE` as a server-side filter or through saved Interactive
+Report filters. Never concatenate item values into dynamic SQL.
 
 ### 4.5 Toolbar buttons
 
-| Button | Selected rows | Package call |
+| Button | Selected rows | Action |
 |---|---:|---|
 | Generate/Refresh List | No | `PKG_HR_INCREMENT_SIMPLE.PREPARE_MONTHLY_LIST` |
-| Mark Ready | Yes | `SET_DECISION(..., 'READY')` |
-| Temporary Hold | Yes | `SET_DECISION(..., 'TEMP_HOLD')` |
-| Punishment Delay | Yes | `SET_DECISION(..., 'PUNISHMENT_DELAY')` |
-| Punishment Forfeit | Yes | `SET_DECISION(..., 'PUNISHMENT_FORFEIT')` |
-| Release Hold | Yes | `RELEASE_HOLD` |
-| Recalculate | Yes | `RECALCULATE_CASE` |
-| Final Process | No; processes all READY rows in the current list | `FINALIZE_MONTHLY_LIST` |
+| Apply Selected Action | Yes | Uses `P500_ACTION_CODE` and remarks for every checked row |
+| Final Submit & Update Salary | No; processes all READY rows in the current list | `FINALIZE_MONTHLY_LIST` |
 
-### 4.6 Inline decision dialog region
+### 4.6 Selected Action region
 
-Use an Inline Dialog region on Page 500, so no extra decision page is needed.
+Place a compact Static Content region directly above the Interactive Report.
+Use this select-list LOV for `P500_ACTION_CODE`:
+
+```text
+Apply for Increment;READY
+Temporary Hold;TEMP_HOLD
+Punishment Delay;PUNISHMENT_DELAY
+Punishment Forfeit;PUNISHMENT_FORFEIT
+Release Completed Hold;RELEASE_HOLD
+Recalculate;RECALCULATE
+```
+
+Default return value: `READY`.
 
 Items:
 
-- selected increment ID(s), protected;
-- decision type;
-- reason code;
-- reason/remarks;
+- action type;
+- reason/remarks explaining why the action is taken;
 - temporary-hold review date;
 - punishment reference/order number;
 - revised effective date for `PUNISHMENT_DELAY` only;
@@ -223,17 +247,23 @@ Dynamic behavior:
 - `PUNISHMENT_DELAY`: require punishment reference, reason and revised effective date.
 - `PUNISHMENT_FORFEIT`: require punishment reference, reason and confirmation.
 - `READY`: no exceptional fields; retain original effective date.
+- `RELEASE_HOLD`: require release remarks.
+- `RECALCULATE`: hide all exceptional items.
+
+The same action and remarks are applied to all checked employees. If employees
+need different reasons, process them separately so each occurrence has an
+accurate audit reason.
 
 ### 4.7 Generate/Refresh process
 
 The package performs two actions:
 
-1. Inserts new employee occurrences whose next consideration date is inside the previous-month window.
+1. Inserts new employee occurrences whose next consideration date is inside the previous-month window and marks every normal eligible occurrence `READY` by default.
 2. Moves unresolved temporary holds into the displayed monthly list as carry-forward without duplicating the occurrence.
 
-Existing `READY`, `HOLD`, `PUNISHMENT`, `POSTED`, or `FORFEITED` decisions are never overwritten by refresh.
+After generation, HR reviews the list and changes only exceptions to temporary hold, punishment delay or punishment forfeit. EB holds, step-25 maximum cases, configuration errors and existing carry-forward holds are never auto-readied. Existing `READY`, `HOLD`, `PUNISHMENT`, `POSTED`, or `FORFEITED` decisions are never overwritten by refresh.
 
-### 4.8 Final Process dialog
+### 4.8 Final Submit & Update Salary dialog
 
 Before posting, show:
 
@@ -252,14 +282,25 @@ Final processing rules:
 3. Forfeited cases are finalized without updating salary.
 4. All ready cases are processed in one strict transaction.
 5. Any failure rolls back salary, action, history and case updates for the whole posting request.
-6. On success, the grid refresh removes posted employees from the operational view.
+6. On success, the report refresh removes posted employees from the operational view.
+
+This button is not only an approval flag. On successful submit it changes the live payroll data in one database transaction:
+
+- `EMP_SALARY_STRUCTURE`: replaces the active salary-component amounts with the incremented amounts;
+- `EMP_SALARY_STRUCTURE_HIST`: stores the old and new amount of every affected component;
+- `HR_EMPLOYEE_ACTION`: creates the approved `INCREMENT` action;
+- `HR_EMPLOYEE_INCREMENT`: marks the exact occurrence `POSTED` and records its action, salary and audit values;
+- `EMPLOYEES`: updates `LAST_INCREMENT_DATE` and the next anniversary-based `NEXT_INCREMENT_DATE`, or clears the next date after step 25.
+
+APEX commits only after the package completes successfully. Any employee failure rolls the complete batch back to the package savepoint; therefore a partially posted monthly batch is not allowed.
 
 ### 4.9 Page security
 
-- `INC_VIEW`: view page/grid.
+- `INC_VIEW`: view page/report.
 - `INC_PREPARE`: generate, recalculate, decide.
-- `INC_PROCESS`: final posting.
-- The package checks company access and status again; hidden buttons are not the security boundary.
+- `INC_PROCESS`: final submit and live salary update.
+- `INC_REVERT`: controlled reversal from Page 501 only.
+- The package rechecks database status and locks the occurrence. Enforce `INC_*` authorizations in APEX and grant package execution only to the application schema; hidden buttons alone are not a security boundary.
 - Preparer and final processor should be different users in production.
 
 ### 4.10 APEX page-process calls
@@ -270,7 +311,7 @@ Generate/Refresh button process:
 BEGIN
     hrms.pkg_hr_increment_simple.prepare_monthly_list(
         p_com_id      => :P500_COM_ID,
-        p_list_date   => :P500_LIST_DATE,
+        p_list_date   => TO_DATE(:P500_LIST_DATE, 'DD-MON-YYYY'),
         p_user_id     => :G_USER_ID,
         p_new_count   => :P500_NEW_COUNT,
         p_carry_count => :P500_CARRY_COUNT
@@ -278,40 +319,99 @@ BEGIN
 END;
 ```
 
-Decision dialog process for selected IDs:
+Apply Selected Action process. Add a server-side condition for the
+`APPLY_SELECTED_ACTION` button:
 
 ```sql
 DECLARE
-    l_ids apex_t_varchar2 := apex_string.split(:P500_SELECTED_IDS, ':');
+    l_increment_id NUMBER;
+    l_allowed      NUMBER;
 BEGIN
-    FOR i IN 1 .. l_ids.COUNT LOOP
-        hrms.pkg_hr_increment_simple.set_decision(
-            p_increment_id      => TO_NUMBER(l_ids(i)),
-            p_decision_code     => :P500_DECISION_CODE,
-            p_reason            => :P500_DECISION_REASON,
-            p_review_date       => :P500_REVIEW_DATE,
-            p_revised_effective => :P500_REVISED_EFFECTIVE_DATE,
-            p_punishment_ref_no => :P500_PUNISHMENT_REF_NO,
-            p_user_id           => :G_USER_ID
-        );
+    IF APEX_APPLICATION.G_F01.COUNT = 0 THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Select at least one employee.');
+    END IF;
+
+    FOR i IN 1 .. APEX_APPLICATION.G_F01.COUNT LOOP
+        l_increment_id := TO_NUMBER(APEX_APPLICATION.G_F01(i));
+
+        /* Do not trust a posted checkbox value without checking its list. */
+        SELECT COUNT(*)
+          INTO l_allowed
+          FROM hr_employee_increment x
+         WHERE x.increment_id = l_increment_id
+           AND x.com_id = :P500_COM_ID
+           AND x.current_list_date =
+               TRUNC(TO_DATE(:P500_LIST_DATE, 'DD-MON-YYYY'))
+           AND x.status NOT IN (
+               'POSTED', 'FORFEITED', 'CANCELLED', 'REVERSED',
+               'CLOSED_NO_INCREMENT'
+           );
+
+        IF l_allowed = 0 THEN
+            RAISE_APPLICATION_ERROR(
+                -20001,
+                'A selected employee is outside the displayed increment list.'
+            );
+        END IF;
+
+        IF :P500_ACTION_CODE = 'RELEASE_HOLD' THEN
+            hrms.pkg_hr_increment_simple.release_hold(
+                p_increment_id => l_increment_id,
+                p_remarks      => :P500_ACTION_REMARKS,
+                p_user_id      => :G_USER_ID
+            );
+        ELSIF :P500_ACTION_CODE = 'RECALCULATE' THEN
+            hrms.pkg_hr_increment_simple.recalculate_case(
+                p_increment_id => l_increment_id,
+                p_user_id      => :G_USER_ID
+            );
+        ELSE
+            hrms.pkg_hr_increment_simple.set_decision(
+                p_increment_id      => l_increment_id,
+                p_decision_code     => :P500_ACTION_CODE,
+                p_reason            => :P500_ACTION_REMARKS,
+                p_review_date       =>
+                    CASE
+                        WHEN :P500_REVIEW_DATE IS NOT NULL
+                        THEN TO_DATE(:P500_REVIEW_DATE, 'DD-MON-YYYY')
+                    END,
+                p_revised_effective =>
+                    CASE
+                        WHEN :P500_REVISED_EFFECTIVE_DATE IS NOT NULL
+                        THEN TO_DATE(
+                                 :P500_REVISED_EFFECTIVE_DATE,
+                                 'DD-MON-YYYY'
+                             )
+                    END,
+                p_punishment_ref_no => :P500_PUNISHMENT_REF_NO,
+                p_user_id           => :G_USER_ID
+            );
+        END IF;
     END LOOP;
 END;
 ```
 
-Final Process button process:
+Required APEX validations:
+
+- remarks are required unless action is `RECALCULATE`;
+- punishment delay requires remarks, punishment reference and revised date;
+- punishment forfeit requires remarks, punishment reference and confirmation;
+- temporary hold may use a review date but never changes the original effective date.
+
+Final Submit & Update Salary button process:
 
 ```sql
 BEGIN
     hrms.pkg_hr_increment_simple.finalize_monthly_list(
         p_com_id          => :P500_COM_ID,
-        p_list_date       => :P500_LIST_DATE,
+        p_list_date       => TO_DATE(:P500_LIST_DATE, 'DD-MON-YYYY'),
         p_user_id         => :G_USER_ID,
         p_processed_count => :P500_PROCESSED_COUNT
     );
 END;
 ```
 
-After each successful process, refresh the KPI cards and Interactive Grid. On error, use the application error handler to display the package message and preserve the user’s filters.
+After each successful process, refresh the KPI cards and Interactive Report. On error, use the application error handler to display the package message and preserve the user’s filters.
 
 ---
 
@@ -319,7 +419,7 @@ After each successful process, refresh the KPI cards and Interactive Grid. On er
 
 ### Purpose
 
-Read-only history and search page for every increment occurrence.
+History and search page for every increment occurrence. The report itself is read-only; its only data-changing action is the separately authorized, audited revert process.
 
 ### Regions
 
@@ -346,15 +446,54 @@ Report columns:
 - from/to step;
 - decision/status/reason;
 - approved/processed by;
-- action ID and letter link.
+- original action ID, reverse action ID, reversal reason/date and letter link.
 
 Row actions:
 
 - View status timeline;
 - Open salary comparison drawer/region;
 - Open Page 502 for letter;
+- Revert Increment, visible only when `STATUS = 'POSTED'` and the user has `INC_REVERT` authorization.
 
-No editable columns are allowed.
+No editable report columns are allowed.
+
+### Revert Increment inline dialog
+
+Keep this on Page 501 as an Inline Dialog region; do not add another page. The row action sets protected item `P501_REVERT_INCREMENT_ID` and opens the dialog.
+
+Dialog items:
+
+- `P501_REVERT_INCREMENT_ID`: Hidden, Session State Protection checksum required;
+- employee, effective date, old/new basic and action number: Display Only, queried again from the database;
+- `P501_REVERT_REASON`: Textarea, mandatory, maximum 1000 characters;
+- `P501_REOPEN_YN`: Switch, default `Y`;
+- `P501_REVERT_CONFIRM`: Text Field, user must type `REVERT`;
+- `REVERT_INCREMENT` button, protected by `INC_REVERT` authorization.
+
+`P501_REOPEN_YN = 'Y'` is the normal correction route. It restores the previous live salary and returns the same occurrence to Page 500 as `DRAFT` in the current monthly list. HR can recalculate, mark it ready and submit it again. Its original consideration/effective date is retained; an already approved punishment revised-effective date remains separate and is not silently replaced.
+
+`P501_REOPEN_YN = 'N'` permanently closes this occurrence as `REVERSED`. The next annual consideration is still derived from the original anniversary anchor; the processing or reversal date never becomes the new anchor.
+
+Revert is deliberately blocked when a later approved increment, confirmation, promotion or salary revision exists, because that later action may depend on the posted salary. It is also blocked if the original component history is missing or the current live components no longer equal the posted component values.
+
+Page process, executed only after the confirmation validation succeeds:
+
+```sql
+BEGIN
+    IF UPPER(TRIM(:P501_REVERT_CONFIRM)) <> 'REVERT' THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Type REVERT to confirm.');
+    END IF;
+
+    hrms.pkg_hr_increment_simple.revert_increment(
+        p_increment_id => :P501_REVERT_INCREMENT_ID,
+        p_reason       => :P501_REVERT_REASON,
+        p_user_id      => :G_USER_ID,
+        p_reopen_yn    => :P501_REOPEN_YN
+    );
+END;
+```
+
+After success, close the dialog and refresh the register. When reopened, provide a branch/button to Page 500 with the current month selected. Never delete the original action, case or salary history. The procedure creates a compensating `REVERSE_INCREMENT` action and reversal component-history rows; any letter belonging to the reverted action is retained but marked `CANCELLED`.
 
 ---
 
@@ -448,6 +587,10 @@ RELEASE_HOLD
 FINALIZE_MONTHLY_LIST
     Strict atomic posting of all READY cases for the displayed list/company.
 
+REVERT_INCREMENT
+    Restore salary from component history, create a compensating action and
+    either reopen the same occurrence or close it as REVERSED.
+
 GENERATE_LETTER
     Create a stored historical letter for one POSTED increment.
 ```
@@ -469,6 +612,12 @@ Every public procedure receives `P_USER_ID`. The package obtains employee, compa
 | `-20509` | Another user is processing this list |
 | `-20510` | Final processing rolled back |
 | `-20511` | Letter allowed only for posted increment |
+| `-20512` | Revert reason is required |
+| `-20513` | Only a posted occurrence can be reverted |
+| `-20514` | A later approved salary/career action blocks revert |
+| `-20515` | Salary-component history is missing; safe revert is impossible |
+| `-20516` | Reopen option must be Y or N |
+| `-20517` | Live salary no longer matches the posted component values |
 
 ---
 
@@ -482,15 +631,17 @@ Generate list for 01-Jul–31-Jul
     ↓
 Review employees
     ↓
-Mark Ready / Temporary Hold / Punishment
+Review list; record Temporary Hold / Punishment exceptions
     ↓
 Release completed holds when applicable
     ↓
-Final Process all READY employees
+Final Submit & Update Salary for all READY employees
     ↓
 Posted employees disappear from Page 500
     ↓
 Page 501 shows permanent increment register
+    ↓ (only if correction is required)
+Authorized Revert restores salary and optionally reopens the same occurrence
     ↓
 Page 502 generates/manages letters
     ↓
@@ -513,7 +664,7 @@ The original repository did not contain the production DDL for `HR_EMPLOYEE_INCR
 - decision code and work status;
 - hold type, reason, review date and punishment reference;
 - current/proposed salary and scale-step snapshots;
-- action, processing and letter references;
+- action, reversal, processing and letter references;
 - version number and audit columns.
 
 Do not create a second competing increment-detail table. Use `HR_EMPLOYEE_INCREMENT` as the single occurrence record.
@@ -529,7 +680,7 @@ For a new/test schema:
 5. Updated `HR_INCREMENT_HOLD`.
 6. Salary history and letter tables/templates.
 7. `FN_GET_NEXT_BASIC` and salary calculation functions.
-8. `PR_HOLD_INCREMENT`, `PR_RELEASE_INCREMENT_HOLD`, `PR_APPLY_INCREMENT`.
+8. `PR_HOLD_INCREMENT`, `PR_RELEASE_INCREMENT_HOLD`, `PR_APPLY_INCREMENT`, `PR_REVERSE_INCREMENT`.
 9. `PKG_HR_INCREMENT_SIMPLE`.
 10. Run the EB/25-step validation script, then create APEX Pages 500–503.
 

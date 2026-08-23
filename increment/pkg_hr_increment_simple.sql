@@ -12,7 +12,8 @@
     COM_ID, ORIGINAL_LIST_DATE, CURRENT_LIST_DATE, SALARY_MONTH,
     REVISED_EFFECTIVE_DATE, DECISION_CODE, HOLD_TYPE, HOLD_REASON,
     HOLD_REVIEW_DATE, PUNISHMENT_REF_NO, SCALE_ID, FROM_STEP_NO,
-    TO_STEP_NO, TOTAL_STEPS, VERSION_NO.
+    TO_STEP_NO, TOTAL_STEPS, REVERSE_ACTION_ID, REVERSED_BY,
+    REVERSED_DATE, REVERSAL_REASON, VERSION_NO.
 
   Existing expected columns include INCREMENT_ID, EMP_ID, DUE_DATE,
   EFFECTIVE_DATE, OLD_BASIC, PROPOSED_BASIC, OLD_GROSS, PROPOSED_GROSS,
@@ -58,6 +59,13 @@ CREATE OR REPLACE PACKAGE HRMS.pkg_hr_increment_simple AS
         p_list_date       IN  DATE,
         p_user_id         IN  NUMBER,
         p_processed_count OUT NUMBER
+    );
+
+    PROCEDURE revert_increment (
+        p_increment_id IN NUMBER,
+        p_reason       IN VARCHAR2,
+        p_user_id      IN NUMBER,
+        p_reopen_yn    IN VARCHAR2 DEFAULT 'Y'
     );
 
     PROCEDURE generate_letter (
@@ -205,7 +213,10 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
                    proposed_gross   = v_old_gross,
                    increment_amount = 0,
                    scale_id         = v_scale_id,
-                   from_step_no     = v_from_step,
+                   from_step_no     = CASE
+                                          WHEN v_from_step < 0 THEN NULL
+                                          ELSE v_from_step
+                                      END,
                    to_step_no       = v_to_step,
                    total_steps      = 25,
                    decision_code    = 'EB_HOLD',
@@ -236,7 +247,10 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
                proposed_gross   = NULL,
                increment_amount = v_new_basic - v_old_basic,
                scale_id         = v_scale_id,
-               from_step_no     = v_from_step,
+               from_step_no     = CASE
+                                      WHEN v_from_step < 0 THEN NULL
+                                      ELSE v_from_step
+                                  END,
                to_step_no       = v_to_step,
                total_steps      = 25,
                updated_by       = p_user_id,
@@ -342,6 +356,57 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
             RETURNING increment_id INTO v_increment_id;
 
             recalculate_case(v_increment_id, p_user_id);
+
+            /*
+               Normal newly generated employees are READY by default. HR only
+               records exceptions (temporary hold or punishment) before the
+               final salary update. Recalculation may already have marked an
+               EB/max/configuration case with a blocking decision/status; those
+               rows must never be auto-readied here.
+            */
+            UPDATE hr_employee_increment
+               SET decision_code = c_dec_ready,
+                   status        = 'READY',
+                   remarks       = 'Eligible annual increment; review exceptions before final submit.',
+                   updated_by    = p_user_id,
+                   updated_date  = SYSDATE,
+                   version_no    = NVL(version_no, 0) + 1
+             WHERE increment_id = v_increment_id
+               AND status = 'DRAFT'
+               AND decision_code IS NULL;
+
+            IF SQL%ROWCOUNT > 0 THEN
+                INSERT INTO hr_employee_action (
+                    emp_id,
+                    increment_id,
+                    action_type,
+                    action_date,
+                    effective_date,
+                    old_effective_date,
+                    new_effective_date,
+                    reason,
+                    remarks,
+                    approval_status,
+                    ent_by,
+                    approved_by,
+                    approved_date
+                ) VALUES (
+                    r.emp_id,
+                    v_increment_id,
+                    'INCREMENT_READY',
+                    SYSDATE,
+                    TRUNC(r.due_date),
+                    TRUNC(r.due_date),
+                    TRUNC(r.due_date),
+                    'Automatically ready on monthly increment list generation',
+                    'HR must record hold or punishment exceptions before final submit.',
+                    'APPROVED',
+                    p_user_id,
+                    p_user_id,
+                    SYSDATE
+                );
+            END IF;
+
             p_new_count := p_new_count + 1;
         END LOOP;
     END prepare_monthly_list;
@@ -410,11 +475,28 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
             UPDATE hr_employee_increment
                SET decision_code          = c_dec_ready,
                    status                 = 'READY',
-                   hold_type              = NULL,
-                   revised_effective_date = NULL,
-                   hold_reason            = NULL,
+                   hold_type              = CASE
+                                                WHEN hold_type = c_dec_punish_delay
+                                                 AND revised_effective_date IS NOT NULL
+                                                THEN hold_type
+                                                ELSE NULL
+                                            END,
+                   revised_effective_date = CASE
+                                                WHEN hold_type = c_dec_punish_delay
+                                                THEN revised_effective_date
+                                                ELSE NULL
+                                            END,
+                   hold_reason            = CASE
+                                                WHEN hold_type = c_dec_punish_delay
+                                                THEN hold_reason
+                                                ELSE NULL
+                                            END,
                    hold_review_date       = NULL,
-                   punishment_ref_no      = NULL,
+                   punishment_ref_no      = CASE
+                                                WHEN hold_type = c_dec_punish_delay
+                                                THEN punishment_ref_no
+                                                ELSE NULL
+                                            END,
                    updated_by             = p_user_id,
                    updated_date           = SYSDATE,
                    version_no             = NVL(version_no, 0) + 1
@@ -738,6 +820,25 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
                 );
             END IF;
     END finalize_monthly_list;
+
+    PROCEDURE revert_increment (
+        p_increment_id IN NUMBER,
+        p_reason       IN VARCHAR2,
+        p_user_id      IN NUMBER,
+        p_reopen_yn    IN VARCHAR2 DEFAULT 'Y'
+    ) IS
+    BEGIN
+        /*
+           PR_REVERSE_INCREMENT performs the locked, history-based reversal.
+           This package remains the only API called directly from APEX.
+        */
+        HRMS.pr_reverse_increment(
+            p_increment_id => p_increment_id,
+            p_remarks      => p_reason,
+            p_user_id      => p_user_id,
+            p_reopen_yn    => p_reopen_yn
+        );
+    END revert_increment;
 
     PROCEDURE generate_letter (
         p_increment_id IN  NUMBER,
