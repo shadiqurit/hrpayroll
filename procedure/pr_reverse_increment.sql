@@ -16,6 +16,7 @@ IS
     v_new_gross       NUMBER;
     v_status          VARCHAR2(30);
     v_later_actions   NUMBER;
+    v_action_state    NUMBER;
     v_history_rows    NUMBER;
     v_salary_mismatch NUMBER;
     v_current_gross   NUMBER;
@@ -30,7 +31,7 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20516, 'Reopen value must be Y or N.');
     END IF;
 
-    /* Lock the exact posted occurrence; never reverse by employee alone. */
+    /* Lock the exact pre-final applied occurrence; never reverse by employee alone. */
     SELECT i.emp_id,
            i.action_id,
            i.due_date,
@@ -53,8 +54,27 @@ BEGIN
      WHERE i.increment_id = p_increment_id
        FOR UPDATE;
 
-    IF v_status <> 'POSTED' OR v_action_id IS NULL THEN
-        RAISE_APPLICATION_ERROR(-20513, 'Only a POSTED increment can be reverted.');
+    IF v_status <> 'APPLIED' OR v_action_id IS NULL THEN
+        RAISE_APPLICATION_ERROR(
+            -20513,
+            'Only an APPLIED increment can be undone before final submit. POSTED increments are final.'
+        );
+    END IF;
+
+    SELECT COUNT(*)
+      INTO v_action_state
+      FROM hr_employee_action a
+     WHERE a.action_id = v_action_id
+       AND a.increment_id = p_increment_id
+       AND a.emp_id = v_emp_id
+       AND a.action_type = 'INCREMENT'
+       AND a.approval_status = 'PENDING_FINAL';
+
+    IF v_action_state <> 1 THEN
+        RAISE_APPLICATION_ERROR(
+            -20513,
+            'The applied increment is no longer pending final submit and cannot be undone.'
+        );
     END IF;
 
     /*
@@ -119,7 +139,7 @@ BEGIN
     IF v_salary_mismatch > 0 THEN
         RAISE_APPLICATION_ERROR(
             -20517,
-            'Current salary no longer matches the posted increment; review later or manual salary changes first.'
+            'Current salary no longer matches the applied increment; review later or manual salary changes first.'
         );
     END IF;
 
@@ -130,12 +150,12 @@ BEGIN
      WHERE s.employee_id = v_emp_id
        AND NVL(s.is_active, 'Y') = 'Y'
        AND ah.head_type = 'EARNING'
-       AND s.headcode NOT IN ('025', '026');
+       AND LPAD(TRIM(s.headcode), 3, '0') NOT IN ('025', '026');
 
     IF NVL(v_current_gross, 0) <> NVL(v_new_gross, 0) THEN
         RAISE_APPLICATION_ERROR(
             -20517,
-            'Current gross salary no longer matches the posted increment; review later or manual salary changes first.'
+            'Current gross salary no longer matches the applied increment; review later or manual salary changes first.'
         );
     END IF;
 
@@ -292,16 +312,11 @@ BEGIN
        AND status <> 'CANCELLED';
 
     UPDATE hr_employee_increment
-       SET status            = CASE WHEN v_reopen_yn = 'Y' THEN 'DRAFT' ELSE 'REVERSED' END,
-           decision_code     = CASE WHEN v_reopen_yn = 'Y' THEN NULL ELSE decision_code END,
-           current_list_date = CASE
-                                 WHEN v_reopen_yn = 'Y' THEN TRUNC(SYSDATE, 'MM')
-                                 ELSE current_list_date
-                               END,
-           salary_month      = CASE
-                                 WHEN v_reopen_yn = 'Y' THEN TO_NUMBER(TO_CHAR(SYSDATE, 'YYYYMM'))
-                                 ELSE salary_month
-                               END,
+       SET status            = CASE WHEN v_reopen_yn = 'Y' THEN 'READY' ELSE 'REVERSED' END,
+           decision_code     = CASE WHEN v_reopen_yn = 'Y' THEN 'READY' ELSE decision_code END,
+           action_id         = CASE WHEN v_reopen_yn = 'Y' THEN NULL ELSE action_id END,
+           applied_by        = CASE WHEN v_reopen_yn = 'Y' THEN NULL ELSE applied_by END,
+           applied_date      = CASE WHEN v_reopen_yn = 'Y' THEN NULL ELSE applied_date END,
            reverse_action_id = v_reverse_action,
            reversed_by       = p_user_id,
            reversed_date     = SYSDATE,
@@ -331,6 +346,6 @@ BEGIN
 
 EXCEPTION
     WHEN NO_DATA_FOUND THEN
-        RAISE_APPLICATION_ERROR(-20513, 'Posted increment occurrence was not found.');
+        RAISE_APPLICATION_ERROR(-20513, 'Applied increment occurrence was not found.');
 END;
 /

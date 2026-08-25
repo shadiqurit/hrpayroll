@@ -12,15 +12,17 @@
     COM_ID, ORIGINAL_LIST_DATE, CURRENT_LIST_DATE, SALARY_MONTH,
     REVISED_EFFECTIVE_DATE, DECISION_CODE, HOLD_TYPE, HOLD_REASON,
     HOLD_REVIEW_DATE, PUNISHMENT_REF_NO, SCALE_ID, FROM_STEP_NO,
-    TO_STEP_NO, TOTAL_STEPS, REVERSE_ACTION_ID, REVERSED_BY,
+    TO_STEP_NO, TOTAL_STEPS, APPLIED_BY, APPLIED_DATE,
+    REVERSE_ACTION_ID, REVERSED_BY,
     REVERSED_DATE, REVERSAL_REASON, VERSION_NO.
 
   Existing expected columns include INCREMENT_ID, EMP_ID, DUE_DATE,
   EFFECTIVE_DATE, OLD_BASIC, PROPOSED_BASIC, OLD_GROSS, PROPOSED_GROSS,
   INCREMENT_AMOUNT, STATUS, REMARKS, CHANGE_REASON, ACTION_ID and audit fields.
 
-  No public routine commits. APEX owns commit on success. FINALIZE_MONTHLY_LIST
-  uses a savepoint so any failed employee rolls back the entire final request.
+  No public routine commits. APEX owns commit on success. Applying salary and
+  final posting are separate atomic operations. Only APPLIED rows may be
+  reversed; POSTED rows are final and irreversible in this module.
 */
 
 CREATE OR REPLACE PACKAGE HRMS.pkg_hr_increment_simple AS
@@ -52,6 +54,13 @@ CREATE OR REPLACE PACKAGE HRMS.pkg_hr_increment_simple AS
         p_increment_id IN NUMBER,
         p_remarks      IN VARCHAR2,
         p_user_id      IN NUMBER
+    );
+
+    PROCEDURE apply_ready_monthly_list (
+        p_com_id        IN  NUMBER,
+        p_list_date     IN  DATE,
+        p_user_id       IN  NUMBER,
+        p_applied_count OUT NUMBER
     );
 
     PROCEDURE finalize_monthly_list (
@@ -139,7 +148,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
                LEFT JOIN vw_employee_salary v ON v.emp_id = e.id
          WHERE e.id = v_emp_id;
 
-        IF v_status IN ('POSTED', 'FORFEITED', 'CANCELLED', 'REVERSED') THEN
+        IF v_status IN ('APPLIED', 'POSTED', 'FORFEITED', 'CANCELLED', 'REVERSED') THEN
             RAISE_APPLICATION_ERROR(-20503, 'Finalized increment cannot be recalculated.');
         END IF;
 
@@ -439,7 +448,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
          WHERE increment_id = p_increment_id
            FOR UPDATE;
 
-        IF v_status IN ('POSTED', 'FORFEITED', 'CANCELLED', 'REVERSED', 'CLOSED_NO_INCREMENT') THEN
+        IF v_status IN ('APPLIED', 'POSTED', 'FORFEITED', 'CANCELLED', 'REVERSED', 'CLOSED_NO_INCREMENT') THEN
             RAISE_APPLICATION_ERROR(-20503, 'Finalized increment cannot be changed.');
         END IF;
 
@@ -761,19 +770,23 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
             RAISE_APPLICATION_ERROR(-20503, 'Selected occurrence is not an active hold.');
     END release_hold;
 
-    PROCEDURE finalize_monthly_list (
-        p_com_id          IN  NUMBER,
-        p_list_date       IN  DATE,
-        p_user_id         IN  NUMBER,
-        p_processed_count OUT NUMBER
+    PROCEDURE apply_ready_monthly_list (
+        p_com_id        IN  NUMBER,
+        p_list_date     IN  DATE,
+        p_user_id       IN  NUMBER,
+        p_applied_count OUT NUMBER
     ) IS
         v_payable_effective DATE;
+        v_current_emp_id    NUMBER;
+        v_current_inc_id    NUMBER;
+        v_error_code        NUMBER;
+        v_error_message     VARCHAR2(2000);
     BEGIN
         assert_list_date(p_list_date);
-        SAVEPOINT before_increment_final;
-        p_processed_count := 0;
+        SAVEPOINT before_increment_apply;
+        p_applied_count := 0;
 
-        /* Lock the complete ready set. NOWAIT prevents two processors. */
+        /* Apply every reviewed READY row to the live salary structure. */
         FOR r IN (
             SELECT increment_id,
                    emp_id,
@@ -788,7 +801,10 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
              ORDER BY emp_id
              FOR UPDATE OF status NOWAIT
         ) LOOP
-            v_payable_effective := NVL(r.revised_effective_date, r.effective_date);
+            v_current_emp_id := r.emp_id;
+            v_current_inc_id := r.increment_id;
+            v_payable_effective :=
+                NVL(r.revised_effective_date, r.effective_date);
 
             HRMS.pr_apply_increment(
                 p_emp_id         => r.emp_id,
@@ -798,11 +814,151 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
                 p_increment_id   => r.increment_id
             );
 
+            p_applied_count := p_applied_count + 1;
+        END LOOP;
+
+        IF p_applied_count = 0 THEN
+            RAISE_APPLICATION_ERROR(
+                -20518,
+                'No READY employees were found to apply to salary structure.'
+            );
+        END IF;
+
+    EXCEPTION
+        WHEN OTHERS THEN
+            v_error_code    := SQLCODE;
+            v_error_message := SQLERRM;
+            ROLLBACK TO before_increment_apply;
+
+            IF v_error_code = -54 THEN
+                RAISE_APPLICATION_ERROR(-20509, 'Another user is applying this increment list.');
+            ELSIF v_error_code BETWEEN -20999 AND -20000 THEN
+                /* Preserve the precise business-rule error from PR_APPLY_INCREMENT. */
+                RAISE;
+            ELSE
+                RAISE_APPLICATION_ERROR(
+                    -20519,
+                    'Salary application failed for employee ID '
+                    || NVL(TO_CHAR(v_current_emp_id), '?')
+                    || ', increment ID '
+                    || NVL(TO_CHAR(v_current_inc_id), '?')
+                    || '. All changes were rolled back. Cause: '
+                    || SUBSTR(v_error_message, 1, 1200)
+                );
+            END IF;
+    END apply_ready_monthly_list;
+
+    PROCEDURE finalize_monthly_list (
+        p_com_id          IN  NUMBER,
+        p_list_date       IN  DATE,
+        p_user_id         IN  NUMBER,
+        p_processed_count OUT NUMBER
+    ) IS
+        v_ready_count     NUMBER;
+        v_action_count    NUMBER;
+        v_mismatch_count  NUMBER;
+        v_current_gross   NUMBER;
+    BEGIN
+        assert_list_date(p_list_date);
+        SAVEPOINT before_increment_final;
+        p_processed_count := 0;
+
+        SELECT COUNT(*)
+          INTO v_ready_count
+          FROM hr_employee_increment
+         WHERE com_id = p_com_id
+           AND current_list_date = TRUNC(p_list_date)
+           AND decision_code = c_dec_ready
+           AND status = 'READY';
+
+        IF v_ready_count > 0 THEN
+            RAISE_APPLICATION_ERROR(
+                -20520,
+                'READY employees remain. Apply them to salary structure before final submit.'
+            );
+        END IF;
+
+        /* Final submit approves and locks rows already applied to salary. */
+        FOR r IN (
+            SELECT increment_id,
+                   emp_id,
+                   action_id,
+                   proposed_gross
+              FROM hr_employee_increment
+             WHERE com_id = p_com_id
+               AND current_list_date = TRUNC(p_list_date)
+               AND decision_code = c_dec_ready
+               AND status = 'APPLIED'
+             ORDER BY emp_id
+             FOR UPDATE OF status NOWAIT
+        ) LOOP
+            SELECT COUNT(*)
+              INTO v_action_count
+              FROM hr_employee_action a
+             WHERE a.action_id = r.action_id
+               AND a.increment_id = r.increment_id
+               AND a.emp_id = r.emp_id
+               AND a.action_type = 'INCREMENT'
+               AND a.approval_status = 'PENDING_FINAL';
+
+            SELECT COUNT(*)
+              INTO v_mismatch_count
+              FROM emp_salary_structure_hist h
+             WHERE h.action_id = r.action_id
+               AND h.emp_id = r.emp_id
+               AND NOT EXISTS (
+                     SELECT 1
+                       FROM emp_salary_structure s
+                      WHERE s.employee_id = r.emp_id
+                        AND NVL(s.is_active, 'Y') = 'Y'
+                        AND (
+                             (h.sals_id IS NOT NULL AND s.sals_id = h.sals_id)
+                             OR (h.sals_id IS NULL AND s.headcode = h.headcode)
+                        )
+                        AND NVL(s.amount, 0) = NVL(h.new_amount, 0)
+                   );
+
+            SELECT NVL(SUM(s.amount), 0)
+              INTO v_current_gross
+              FROM emp_salary_structure s
+                   JOIN allowance_head ah ON ah.head_id = s.slno
+             WHERE s.employee_id = r.emp_id
+               AND NVL(s.is_active, 'Y') = 'Y'
+               AND ah.head_type = 'EARNING'
+               AND LPAD(TRIM(s.headcode), 3, '0') NOT IN ('025', '026');
+
+            IF v_action_count <> 1
+               OR v_mismatch_count > 0
+               OR NVL(v_current_gross, 0) <> NVL(r.proposed_gross, 0)
+            THEN
+                RAISE_APPLICATION_ERROR(
+                    -20517,
+                    'Applied salary changed before final submit; review or undo the applied increment.'
+                );
+            END IF;
+
+            UPDATE hr_employee_action
+               SET approval_status = 'APPROVED',
+                   approved_by     = p_user_id,
+                   approved_date   = SYSDATE,
+                   upd_by          = p_user_id,
+                   upd_date        = SYSDATE
+             WHERE action_id = r.action_id;
+
+            UPDATE hr_employee_increment
+               SET status       = 'POSTED',
+                   posted_by    = p_user_id,
+                   posted_date  = SYSDATE,
+                   updated_by   = p_user_id,
+                   updated_date = SYSDATE,
+                   version_no   = NVL(version_no, 0) + 1
+             WHERE increment_id = r.increment_id;
+
             p_processed_count := p_processed_count + 1;
         END LOOP;
 
         IF p_processed_count = 0 THEN
-            RAISE_APPLICATION_ERROR(-20503, 'No READY employees were found for final processing.');
+            RAISE_APPLICATION_ERROR(-20503, 'No APPLIED employees were found for final submit.');
         END IF;
 
     EXCEPTION
@@ -816,7 +972,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
             ELSE
                 RAISE_APPLICATION_ERROR(
                     -20510,
-                    'Final increment processing failed and all employee changes were rolled back.'
+                    'Final submit failed. Applied salaries remain pending and were not finalized.'
                 );
             END IF;
     END finalize_monthly_list;
@@ -829,8 +985,9 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
     ) IS
     BEGIN
         /*
-           PR_REVERSE_INCREMENT performs the locked, history-based reversal.
-           This package remains the only API called directly from APEX.
+           PR_REVERSE_INCREMENT performs the locked, history-based undo for an
+           APPLIED row before final submit. POSTED rows are intentionally not
+           reversible. This package remains the only API called from APEX.
         */
         HRMS.pr_reverse_increment(
             p_increment_id => p_increment_id,

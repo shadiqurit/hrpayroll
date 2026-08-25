@@ -9,11 +9,11 @@ CREATE OR REPLACE FUNCTION HRMS.fn_get_salary_head_amount (
 IS
     v_amount NUMBER;
 BEGIN
-    SELECT CASE p_headcode
+    SELECT CASE LPAD(TRIM(p_headcode), 3, '0')
              WHEN '001' THEN p_basic                         -- Basic
              WHEN '005' THEN ROUND(p_basic * NVL(hr,0) / 100) -- HR
-             WHEN '013' THEN ROUND(p_basic * NVL(cpf,0) / 100) -- CPF earning
-             WHEN '057' THEN ROUND(p_basic * NVL(pfcont,0) / 100) -- PF deduction
+             WHEN '013' THEN ROUND(p_basic * NVL(pfcont,0) / 100) -- PF
+             WHEN '057' THEN ROUND(p_basic * NVL(cpf,0) / 100) -- CPF
              WHEN '007' THEN NVL(conv,0)                     -- Conveyance
              WHEN '010' THEN NVL(medical,0)                  -- Medical
              WHEN '037' THEN NVL(allowance,0)                -- Allowance

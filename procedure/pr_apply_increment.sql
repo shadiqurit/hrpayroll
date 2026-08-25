@@ -210,10 +210,10 @@ BEGIN
         v_eb_status,
         'Annual increment based on pay scale',
         p_remarks,
-        'APPROVED',
+        'PENDING_FINAL',
         p_user_id,
-        p_user_id,
-        SYSDATE
+        NULL,
+        NULL
     )
     RETURNING action_id INTO v_action_id;
 
@@ -230,70 +230,10 @@ BEGIN
         remarks,
         ent_by
     )
-    WITH base_heads AS (
-        SELECT MAX(ah.head_id) AS slno,
-               ah.head_code,
-               NVL(
-                   HRMS.fn_get_salary_head_amount(
-                       p_grade_id       => v_grade_id,
-                       p_headcode       => ah.head_code,
-                       p_basic          => v_new_basic,
-                       p_effective_date => p_effective_date
-                   ), 0
-               ) AS new_amount
-          FROM allowance_head ah
-         WHERE ah.head_code IN (
-               '001',
-               '005',
-               '007',
-               '010',
-               '013',
-               '037',
-               '057',
-               '075'
-         )
-         GROUP BY ah.head_code
-    ),
-    calc_025 AS (
-        SELECT MAX(ah.head_id) AS slno,
-               ah.head_code,
-               NVL(
-                   HRMS.fn_get_salary_head_amount(
-                       p_grade_id       => v_grade_id,
-                       p_headcode       => ah.head_code,
-                       p_basic          => v_new_basic,
-                       p_effective_date => p_effective_date
-                   ), 0
-               ) AS new_amount
-          FROM allowance_head ah
-         WHERE ah.head_code = '025'
-         GROUP BY ah.head_code
-    ),
-    calc_026 AS (
-        SELECT MAX(ah.head_id) AS slno,
-               '026' AS head_code,
-               NVL(MAX(c25.new_amount), 0)
-               -
-               NVL(SUM(
-                   CASE
-                       WHEN bh.head_code IN ('005','007','010','013','037')
-                       THEN bh.new_amount
-                       ELSE 0
-                   END
-               ), 0) AS new_amount
-          FROM allowance_head ah
-               CROSS JOIN base_heads bh
-               CROSS JOIN calc_025 c25
-         WHERE ah.head_code = '026'
-         GROUP BY ah.head_code
-    ),
-    final_heads AS (
-        SELECT * FROM base_heads
-        UNION ALL
-        SELECT * FROM calc_025
-        UNION ALL
-        SELECT * FROM calc_026
-    )
+    /*
+       Annual increment changes only Basic, HR, PF and CPF. Every other
+       existing salary component—including head 025/026—remains untouched.
+    */
     SELECT v_action_id,
            p_emp_id,
            s.sals_id,
@@ -305,7 +245,22 @@ BEGIN
            p_effective_date,
            p_remarks,
            p_user_id
-      FROM final_heads fh
+      FROM (
+            SELECT MAX(ah.head_id) AS slno,
+                   ah.head_code,
+                   NVL(
+                       HRMS.fn_get_salary_head_amount(
+                           p_grade_id       => v_grade_id,
+                           p_headcode       => LPAD(TRIM(ah.head_code), 3, '0'),
+                           p_basic          => v_new_basic,
+                           p_effective_date => p_effective_date
+                       ), 0
+                   ) AS new_amount
+              FROM allowance_head ah
+             WHERE LPAD(TRIM(ah.head_code), 3, '0')
+                   IN ('001', '005', '013', '057')
+             GROUP BY ah.head_code
+           ) fh
            LEFT JOIN emp_salary_structure s
                   ON s.employee_id = p_emp_id
                  AND s.headcode = fh.head_code
@@ -313,68 +268,20 @@ BEGIN
 
     MERGE INTO emp_salary_structure s
     USING (
-        WITH base_heads AS (
-            SELECT MAX(ah.head_id) AS slno,
-                   ah.head_code,
-                   NVL(
-                       HRMS.fn_get_salary_head_amount(
-                           p_grade_id       => v_grade_id,
-                           p_headcode       => ah.head_code,
-                           p_basic          => v_new_basic,
-                           p_effective_date => p_effective_date
-                       ), 0
-                   ) AS new_amount
-              FROM allowance_head ah
-             WHERE ah.head_code IN (
-                   '001',
-                   '005',
-                   '007',
-                   '010',
-                   '013',
-                   '037',
-                   '057',
-                   '075'
-             )
-             GROUP BY ah.head_code
-        ),
-        calc_025 AS (
-            SELECT MAX(ah.head_id) AS slno,
-                   ah.head_code,
-                   NVL(
-                       HRMS.fn_get_salary_head_amount(
-                           p_grade_id       => v_grade_id,
-                           p_headcode       => ah.head_code,
-                           p_basic          => v_new_basic,
-                           p_effective_date => p_effective_date
-                       ), 0
-                   ) AS new_amount
-              FROM allowance_head ah
-             WHERE ah.head_code = '025'
-             GROUP BY ah.head_code
-        ),
-        calc_026 AS (
-            SELECT MAX(ah.head_id) AS slno,
-                   '026' AS head_code,
-                   NVL(MAX(c25.new_amount), 0)
-                   -
-                   NVL(SUM(
-                       CASE
-                           WHEN bh.head_code IN ('005','007','010','013','037')
-                           THEN bh.new_amount
-                           ELSE 0
-                       END
-                   ), 0) AS new_amount
-              FROM allowance_head ah
-                   CROSS JOIN base_heads bh
-                   CROSS JOIN calc_025 c25
-             WHERE ah.head_code = '026'
-             GROUP BY ah.head_code
-        )
-        SELECT * FROM base_heads
-        UNION ALL
-        SELECT * FROM calc_025
-        UNION ALL
-        SELECT * FROM calc_026
+        SELECT MAX(ah.head_id) AS slno,
+               ah.head_code,
+               NVL(
+                   HRMS.fn_get_salary_head_amount(
+                       p_grade_id       => v_grade_id,
+                       p_headcode       => LPAD(TRIM(ah.head_code), 3, '0'),
+                       p_basic          => v_new_basic,
+                       p_effective_date => p_effective_date
+                   ), 0
+               ) AS new_amount
+          FROM allowance_head ah
+         WHERE LPAD(TRIM(ah.head_code), 3, '0')
+               IN ('001', '005', '013', '057')
+         GROUP BY ah.head_code
     ) x
     ON (
         s.employee_id = p_emp_id
@@ -417,7 +324,7 @@ BEGIN
      WHERE s.employee_id = p_emp_id
        AND NVL(s.is_active, 'Y') = 'Y'
        AND ah.head_type = 'EARNING'
-       AND s.headcode NOT IN ('025','026');
+       AND LPAD(TRIM(s.headcode), 3, '0') NOT IN ('025', '026');
 
     UPDATE hr_employee_action
        SET new_gross = v_new_gross
@@ -430,9 +337,9 @@ BEGIN
            old_gross       = v_old_gross,
            proposed_gross  = v_new_gross,
            increment_amount = v_new_basic - v_old_basic,
-           status          = 'POSTED',
-           posted_by       = p_user_id,
-           posted_date     = SYSDATE,
+           status          = 'APPLIED',
+           applied_by      = p_user_id,
+           applied_date    = SYSDATE,
            updated_by      = p_user_id,
            updated_date    = SYSDATE
      WHERE increment_id = v_increment_id;
