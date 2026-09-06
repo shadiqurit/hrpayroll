@@ -33,7 +33,9 @@ INSERT INTO hr_letter_template
 <p>Subject: #PROMOTION_TYPE# Promotion</p>
 <p>Dear #EMP_NAME#,</p>
 <p>We are pleased to inform you that you have been granted <strong>#PROMOTION_TYPE# Promotion</strong> from <strong>#OLD_DESIGNATION#</strong> to <strong>#NEW_DESIGNATION#</strong> with effect from <strong>#EFFECTIVE_DATE#</strong>.</p>
-<p>Your revised basic salary will be <strong>#NEW_BASIC#</strong> and revised gross salary will be <strong>#NEW_GROSS#</strong>.</p>
+<p>Your previous basic salary was <strong>#OLD_BASIC#</strong>. Your promotion increment is <strong>#INCREMENT_AMOUNT#</strong> (#INCREMENT_PERCENT#%), making your revised basic salary <strong>#NEW_BASIC#</strong>.</p>
+<p>Your previous gross salary was <strong>#OLD_GROSS#</strong> and your revised gross salary is <strong>#NEW_GROSS#</strong>.</p>
+#SALARY_DETAILS#
 <p>We congratulate you and wish you continued success.</p>
 <p>Human Resources</p>'
        FROM dual
