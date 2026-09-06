@@ -28,16 +28,14 @@ INSERT INTO hr_letter_template
             'Default Promotion Letter',
             'PROMOTION',
             '#PROMOTION_TYPE# Promotion Letter - #EMP_NAME#',
-            '<p>Date: #LETTER_DATE#</p>
-<p>To<br><strong>#EMP_NAME#</strong><br>Employee ID: #EMP_CODE#</p>
-<p>Subject: #PROMOTION_TYPE# Promotion</p>
+            '<p>To<br><strong>#EMP_NAME#</strong><br>Employee ID: #EMP_CODE#</p>
 <p>Dear #EMP_NAME#,</p>
 <p>We are pleased to inform you that you have been granted <strong>#PROMOTION_TYPE# Promotion</strong> from <strong>#OLD_DESIGNATION#</strong> to <strong>#NEW_DESIGNATION#</strong> with effect from <strong>#EFFECTIVE_DATE#</strong>.</p>
-<p>Your previous basic salary was <strong>#OLD_BASIC#</strong>. Your promotion increment is <strong>#INCREMENT_AMOUNT#</strong> (#INCREMENT_PERCENT#%), making your revised basic salary <strong>#NEW_BASIC#</strong>.</p>
-<p>Your previous gross salary was <strong>#OLD_GROSS#</strong> and your revised gross salary is <strong>#NEW_GROSS#</strong>.</p>
+<p>Your salary structure has been revised. The complete salary-head comparison before and after promotion, including salary heads 025 and 026, is provided below.</p>
 #SALARY_DETAILS#
-<p>We congratulate you and wish you continued success.</p>
-<p>Human Resources</p>'
+<p>All salary heads shown above will take effect from <strong>#EFFECTIVE_DATE#</strong>.</p>
+<p>We congratulate you and wish you continued success in your new role.</p>
+<p style="margin-top:45px">Human Resources</p>'
        FROM dual
       WHERE NOT EXISTS
                 (SELECT 1

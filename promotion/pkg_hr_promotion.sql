@@ -6,8 +6,8 @@
    SUBMIT_AND_POST once.
 
    EMP_SALARY_STRUCTURE is a current-state table, not an effective-dated table.
-   Therefore a future-dated promotion is rejected. Old/new values are written
-   to EMP_SALARY_STRUCTURE_HIST before the live structure is changed.
+   Therefore a future-dated promotion is rejected. The existing
+   TRG_EMP_SAL_STRUCT_HIST trigger writes old/new history automatically.
 
    There is deliberately no COMMIT or full ROLLBACK in this package. APEX owns
    the page transaction. The local savepoint only makes the routine atomic if a
@@ -99,7 +99,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         l_bad_count          PLS_INTEGER;
 
         l_sals_id            emp_salary_structure.sals_id%TYPE;
-        l_old_amount         emp_salary_structure.amount%TYPE;
 
         l_template_id        hr_letter_template.template_id%TYPE;
         l_subject_template   hr_letter_template.subject_template%TYPE;
@@ -107,13 +106,15 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         l_subject            hr_employee_letter.subject_text%TYPE;
         l_body               CLOB;
         l_letter_no          hr_employee_letter.letter_no%TYPE;
-        l_salary_table       VARCHAR2(32767);
         l_old_designation    designations.designation%TYPE;
         l_new_designation    designations.designation%TYPE;
         l_department         departments.dept_name%TYPE;
 
         l_error_code         NUMBER;
         l_error_message      VARCHAR2(2000);
+        l_previous_module    VARCHAR2(64);
+        l_previous_action    VARCHAR2(64);
+        l_promotion_context  BOOLEAN := FALSE;
     BEGIN
         SAVEPOINT before_promotion_submit;
         p_action_id := NULL;
@@ -189,6 +190,15 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
             RAISE_APPLICATION_ERROR(
                 -20621,
                 'This DRAFT promotion is already linked to an employee action. Correct its status before posting.'
+            );
+        END IF;
+
+        /* DBMS_APPLICATION_INFO action is used by the history trigger. The
+           generated PRO-YYYY-NNNNNN number fits with the PROMOTION: prefix. */
+        IF l_promotion_no IS NULL OR LENGTHB(l_promotion_no) > 22 THEN
+            RAISE_APPLICATION_ERROR(
+                -20622,
+                'Promotion number is missing or too long for salary-history reference.'
             );
         END IF;
 
@@ -315,7 +325,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                NVL(SUM(
                    CASE
                        WHEN ah.head_type = 'EARNING'
-                        AND LPAD(TRIM(s.headcode), 3, '0') NOT IN ('025', '026')
                        THEN NVL(s.amount, 0)
                        ELSE 0
                    END
@@ -471,24 +480,22 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
             p_user_id
         );
 
-        l_salary_table :=
-            '<table class="promotion-salary"><thead><tr>'
-            || '<th>Salary head</th><th>Old salary</th>'
-            || '<th>Promotion increment</th><th>New salary</th>'
-            || '</tr></thead><tbody>';
+        /* Pass the promotion reference to TRG_EMP_SAL_STRUCT_HIST. The trigger
+           stores it as [PROMOTION:<number>] in every generated history row. */
+        DBMS_APPLICATION_INFO.READ_MODULE(
+            module_name => l_previous_module,
+            action_name => l_previous_action
+        );
+        DBMS_APPLICATION_INFO.SET_ACTION('PROMOTION:' || l_promotion_no);
+        l_promotion_context := TRUE;
 
         /* HR_PROMOTION_SALARY_DTL is the complete promoted structure. Archive
            and deactivate any currently active head that is not in the new
            structure. This makes live salary exactly match the generated
            promotion details. */
         FOR r IN (
-            SELECT s.sals_id,
-                   s.slno,
-                   s.headcode,
-                   NVL(ah.head_name, s.headcode) AS head_name,
-                   NVL(s.amount, 0) AS old_amount
+            SELECT s.sals_id
               FROM emp_salary_structure s
-                   LEFT JOIN allowance_head ah ON ah.head_id = s.slno
              WHERE s.employee_id = l_emp_id
                AND NVL(s.is_active, 'Y') = 'Y'
                AND NOT EXISTS (
@@ -499,32 +506,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                )
              ORDER BY s.slno
         ) LOOP
-            INSERT INTO emp_salary_structure_hist (
-                action_id,
-                emp_id,
-                sals_id,
-                slno,
-                headcode,
-                old_amount,
-                new_amount,
-                revision_type,
-                effective_date,
-                remarks,
-                ent_by
-            ) VALUES (
-                p_action_id,
-                l_emp_id,
-                r.sals_id,
-                r.slno,
-                r.headcode,
-                r.old_amount,
-                0,
-                'P',
-                l_effective_date,
-                l_remarks,
-                p_user_id
-            );
-
             UPDATE emp_salary_structure
                SET is_active     = 'N',
                    revision_type = 'P',
@@ -532,60 +513,25 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                    updated_date  = SYSDATE
              WHERE sals_id = r.sals_id;
 
-            l_salary_table := l_salary_table
-                || '<tr><td>' || html(r.head_name) || '</td>'
-                || '<td class="amount">' || money(r.old_amount) || '</td>'
-                || '<td class="amount">' || money(-r.old_amount) || '</td>'
-                || '<td class="amount">' || money(0) || '</td></tr>';
         END LOOP;
 
-        /* Archive and apply every head from the complete generated promotion
-           structure. The old amount always comes from the locked live row. */
+        /* Apply every head from the complete generated promotion structure.
+           The trigger captures the old amount from the locked live row. */
         FOR r IN (
             SELECT d.slno,
                    d.headcode,
-                   NVL(d.head_name, ah.head_name) AS head_name,
                    d.amount
               FROM hr_promotion_salary_dtl d
-                   LEFT JOIN allowance_head ah ON ah.head_id = d.slno
              WHERE d.promotion_id = p_promotion_id
              ORDER BY d.slno
         ) LOOP
             BEGIN
-                SELECT sals_id,
-                       CASE WHEN NVL(is_active, 'Y') = 'Y' THEN NVL(amount, 0) ELSE 0 END
-                  INTO l_sals_id,
-                       l_old_amount
+                SELECT sals_id
+                  INTO l_sals_id
                   FROM emp_salary_structure
                  WHERE employee_id = l_emp_id
                    AND slno = r.slno
                    FOR UPDATE NOWAIT;
-
-                INSERT INTO emp_salary_structure_hist (
-                    action_id,
-                    emp_id,
-                    sals_id,
-                    slno,
-                    headcode,
-                    old_amount,
-                    new_amount,
-                    revision_type,
-                    effective_date,
-                    remarks,
-                    ent_by
-                ) VALUES (
-                    p_action_id,
-                    l_emp_id,
-                    l_sals_id,
-                    r.slno,
-                    r.headcode,
-                    l_old_amount,
-                    r.amount,
-                    'P',
-                    l_effective_date,
-                    l_remarks,
-                    p_user_id
-                );
 
                 UPDATE emp_salary_structure
                    SET headcode      = r.headcode,
@@ -597,8 +543,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                  WHERE sals_id = l_sals_id;
             EXCEPTION
                 WHEN NO_DATA_FOUND THEN
-                    l_old_amount := 0;
-
                     INSERT INTO emp_salary_structure (
                         employee_id,
                         slno,
@@ -618,45 +562,15 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                         p_user_id,
                         SYSDATE
                     ) RETURNING sals_id INTO l_sals_id;
-
-                    INSERT INTO emp_salary_structure_hist (
-                        action_id,
-                        emp_id,
-                        sals_id,
-                        slno,
-                        headcode,
-                        old_amount,
-                        new_amount,
-                        revision_type,
-                        effective_date,
-                        remarks,
-                        ent_by
-                    ) VALUES (
-                        p_action_id,
-                        l_emp_id,
-                        l_sals_id,
-                        r.slno,
-                        r.headcode,
-                        0,
-                        r.amount,
-                        'P',
-                        l_effective_date,
-                        l_remarks,
-                        p_user_id
-                    );
             END;
-
-            l_salary_table := l_salary_table
-                || '<tr><td>' || html(NVL(r.head_name, r.headcode)) || '</td>'
-                || '<td class="amount">' || money(l_old_amount) || '</td>'
-                || '<td class="amount">' || money(r.amount - l_old_amount) || '</td>'
-                || '<td class="amount">' || money(r.amount) || '</td></tr>';
         END LOOP;
+
+        DBMS_APPLICATION_INFO.SET_ACTION(l_previous_action);
+        l_promotion_context := FALSE;
 
         SELECT NVL(SUM(
                    CASE
                        WHEN ah.head_type = 'EARNING'
-                        AND LPAD(TRIM(s.headcode), 3, '0') NOT IN ('025', '026')
                        THEN NVL(s.amount, 0)
                        ELSE 0
                    END
@@ -666,13 +580,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                LEFT JOIN allowance_head ah ON ah.head_id = s.slno
          WHERE s.employee_id = l_emp_id
            AND NVL(s.is_active, 'Y') = 'Y';
-
-        l_salary_table := l_salary_table
-            || '<tr class="total"><th>Total gross salary</th>'
-            || '<th class="amount">' || money(l_old_gross) || '</th>'
-            || '<th class="amount">' || money(l_new_gross - l_old_gross) || '</th>'
-            || '<th class="amount">' || money(l_new_gross) || '</th>'
-            || '</tr></tbody></table>';
 
         UPDATE employees
            SET emp_type = NVL(TO_CHAR(l_new_emp_type_id), l_current_emp_type),
@@ -793,10 +700,10 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         l_body := REPLACE(l_body, '#OLD_GROSS#', money(l_old_gross));
         l_body := REPLACE(l_body, '#NEW_GROSS#', money(l_new_gross));
 
-        IF DBMS_LOB.INSTR(l_body, '#SALARY_DETAILS#') > 0 THEN
-            l_body := REPLACE(l_body, '#SALARY_DETAILS#', l_salary_table);
-        ELSE
-            l_body := l_body || '<h3>Salary revision</h3>' || l_salary_table;
+        /* Store only the narrative plus a marker. Page 483 builds salary rows
+           from HR_PROMOTION_SALARY_DTL and trigger-created history. */
+        IF DBMS_LOB.INSTR(l_body, '#SALARY_DETAILS#') = 0 THEN
+            l_body := l_body || '#SALARY_DETAILS#';
         END IF;
 
         /* PROMOTION_NO is already generated by a sequence and is unique. It is
@@ -814,7 +721,9 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
             body_html,
             status,
             generated_by,
-            generated_date
+            generated_date,
+            issued_by,
+            issued_date
         ) VALUES (
             l_emp_id,
             p_action_id,
@@ -824,7 +733,9 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
             SYSDATE,
             l_subject,
             l_body,
-            'DRAFT',
+            'ISSUED',
+            p_user_id,
+            SYSDATE,
             p_user_id,
             SYSDATE
         ) RETURNING letter_id INTO p_letter_id;
@@ -833,6 +744,12 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         WHEN OTHERS THEN
             l_error_code := SQLCODE;
             l_error_message := SQLERRM;
+
+            IF l_promotion_context THEN
+                DBMS_APPLICATION_INFO.SET_ACTION(l_previous_action);
+                l_promotion_context := FALSE;
+            END IF;
+
             ROLLBACK TO before_promotion_submit;
 
             IF l_error_code = -54 THEN
