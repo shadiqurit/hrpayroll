@@ -15,6 +15,14 @@
    ============================================================================ */
 
 CREATE OR REPLACE PACKAGE HRMS.pkg_hr_promotion AS
+    /* Normal APEX call: uses PROMOTION_DEFAULT and does not require output
+       page items. */
+    PROCEDURE submit_and_post (
+        p_promotion_id IN NUMBER,
+        p_user_id      IN NUMBER
+    );
+
+    /* Advanced call: lets a caller select a template and receive the IDs. */
     PROCEDURE submit_and_post (
         p_promotion_id IN  NUMBER,
         p_user_id      IN  NUMBER,
@@ -70,7 +78,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         l_new_dept_id        hr_employee_promotion.new_dept_id%TYPE;
         l_header_old_basic   hr_employee_promotion.old_basic%TYPE;
         l_header_new_basic   hr_employee_promotion.new_basic%TYPE;
-        l_header_old_gross   hr_employee_promotion.old_gross%TYPE;
         l_reason             hr_employee_promotion.reason%TYPE;
         l_remarks            hr_employee_promotion.remarks%TYPE;
         l_status             hr_employee_promotion.approval_status%TYPE;
@@ -138,7 +145,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                    new_dept_id,
                    old_basic,
                    new_basic,
-                   old_gross,
                    reason,
                    remarks,
                    approval_status
@@ -158,7 +164,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                    l_new_dept_id,
                    l_header_old_basic,
                    l_header_new_basic,
-                   l_header_old_gross,
                    l_reason,
                    l_remarks,
                    l_status
@@ -363,16 +368,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
             );
         END IF;
 
-        IF l_header_old_gross IS NOT NULL
-           AND ABS(l_header_old_gross - l_old_gross) > 0.005
-        THEN
-            RAISE_APPLICATION_ERROR(
-                -20615,
-                'Current Gross Salary changed after the promotion draft was generated. '
-                || 'Regenerate the salary details.'
-            );
-        END IF;
-
         IF l_header_new_basic IS NOT NULL
            AND ABS(l_header_new_basic - l_new_basic) > 0.005
         THEN
@@ -482,8 +477,70 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
             || '<th>Promotion increment</th><th>New salary</th>'
             || '</tr></thead><tbody>';
 
-        /* Apply only the generated promotion heads. Unlisted heads remain
-           unchanged, which prevents accidental loss of allowances. */
+        /* HR_PROMOTION_SALARY_DTL is the complete promoted structure. Archive
+           and deactivate any currently active head that is not in the new
+           structure. This makes live salary exactly match the generated
+           promotion details. */
+        FOR r IN (
+            SELECT s.sals_id,
+                   s.slno,
+                   s.headcode,
+                   NVL(ah.head_name, s.headcode) AS head_name,
+                   NVL(s.amount, 0) AS old_amount
+              FROM emp_salary_structure s
+                   LEFT JOIN allowance_head ah ON ah.head_id = s.slno
+             WHERE s.employee_id = l_emp_id
+               AND NVL(s.is_active, 'Y') = 'Y'
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM hr_promotion_salary_dtl d
+                    WHERE d.promotion_id = p_promotion_id
+                      AND d.slno = s.slno
+               )
+             ORDER BY s.slno
+        ) LOOP
+            INSERT INTO emp_salary_structure_hist (
+                action_id,
+                emp_id,
+                sals_id,
+                slno,
+                headcode,
+                old_amount,
+                new_amount,
+                revision_type,
+                effective_date,
+                remarks,
+                ent_by
+            ) VALUES (
+                p_action_id,
+                l_emp_id,
+                r.sals_id,
+                r.slno,
+                r.headcode,
+                r.old_amount,
+                0,
+                'P',
+                l_effective_date,
+                l_remarks,
+                p_user_id
+            );
+
+            UPDATE emp_salary_structure
+               SET is_active     = 'N',
+                   revision_type = 'P',
+                   updated_by    = p_user_id,
+                   updated_date  = SYSDATE
+             WHERE sals_id = r.sals_id;
+
+            l_salary_table := l_salary_table
+                || '<tr><td>' || html(r.head_name) || '</td>'
+                || '<td class="amount">' || money(r.old_amount) || '</td>'
+                || '<td class="amount">' || money(-r.old_amount) || '</td>'
+                || '<td class="amount">' || money(0) || '</td></tr>';
+        END LOOP;
+
+        /* Archive and apply every head from the complete generated promotion
+           structure. The old amount always comes from the locked live row. */
         FOR r IN (
             SELECT d.slno,
                    d.headcode,
@@ -792,6 +849,22 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                     || SUBSTR(l_error_message, 1, 1200)
                 );
             END IF;
+    END submit_and_post;
+
+    PROCEDURE submit_and_post (
+        p_promotion_id IN NUMBER,
+        p_user_id      IN NUMBER
+    ) IS
+        l_action_id NUMBER;
+        l_letter_id NUMBER;
+    BEGIN
+        submit_and_post(
+            p_promotion_id => p_promotion_id,
+            p_user_id      => p_user_id,
+            p_template_id  => NULL,
+            p_action_id    => l_action_id,
+            p_letter_id    => l_letter_id
+        );
     END submit_and_post;
 
 END pkg_hr_promotion;

@@ -1,9 +1,8 @@
 /*
   APEX PL/SQL Dynamic Content region for the promotion letter page.
 
-  Replace PXXX_LETTER_ID with the real hidden page item. Protect that item with
-  Session State Protection. The final-submit process branches to this page and
-  passes the returned letter ID.
+  Page 477 uses its existing protected P477_PROMOTION_ID item. No separate
+  letter-ID page item is required.
 */
 DECLARE
     l_subject     hr_employee_letter.subject_text%TYPE;
@@ -21,10 +20,11 @@ BEGIN
            l_body,
            l_letter_no,
            l_letter_date
-      FROM hr_employee_letter
-     WHERE letter_id = :PXXX_LETTER_ID
-       AND promotion_id IS NOT NULL
-       AND status <> 'CANCELLED';
+     FROM hr_employee_letter
+     WHERE promotion_id = :P477_PROMOTION_ID
+       AND status <> 'CANCELLED'
+     ORDER BY letter_id DESC
+     FETCH FIRST 1 ROW ONLY;
 
     htp.p(q'~
 <style>
