@@ -53,6 +53,11 @@
   Add every item above to the report region's "Page Items to Submit" property.
   On item Change, use one Dynamic Action to Refresh INCREMENT_REGISTER.
 
+  To add the Page 501 batch-print button, create the PL/SQL Dynamic Content
+  region documented in page_501_print_all_letters_button.sql. It opens Page 503
+  with P503_INCREMENT_ID empty, which prints all POSTED letters for the selected
+  company and salary month.
+
   Configure LETTER_CENTER_URL as a Link column:
     Link Text       : Letter Center
     Target          : URL

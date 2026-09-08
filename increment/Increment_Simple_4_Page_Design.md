@@ -486,6 +486,11 @@ APEX version does not support Faceted Search over an Interactive Report, use
 the supplied page-item filter region and Interactive Report; alternatively,
 switch only the result region to a Classic Report before enabling facets.
 
+Use `increment/page_501_print_all_letters_button.sql` for a PL/SQL Dynamic
+Content toolbar above the register. It displays the number of `POSTED` letters
+for the selected company/month and opens Page 503 in batch mode with
+`P503_INCREMENT_ID` empty.
+
 Facets:
 
 - company;
@@ -618,6 +623,19 @@ Paste the complete PL/SQL source from
 - calculated arrear duration and amount;
 - fixed system-generated note and `Page n of total` footer;
 - one employee per printed page and single/all browser print buttons.
+
+Letter language is selected automatically from `JOB_GRADES.GRADE_ORDER`:
+
+- grades `1` through `14`: English;
+- grades `15` through `20`: Bengali;
+- any other or missing grade order: English fallback.
+
+The Bengali output localizes the reference/date labels, employee fields,
+subject and narrative, salary-head names, numeric digits, salary table, arrear
+details, closing, system note and page numbering. Keep the SQL file UTF-8 and
+use an `AL32UTF8` database/application character set. For consistent printing,
+serve **Noto Sans Bengali** or **Hind Siliguri**; common installed Bengali fonts
+remain configured as fallbacks.
 
 The comparison comes from `EMP_SALARY_STRUCTURE_HIST` for the finalized action,
 not from current salary structure, so later salary changes cannot alter an old
