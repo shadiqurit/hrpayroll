@@ -220,6 +220,21 @@ Report filters. Never concatenate item values into dynamic SQL.
 | Apply Selected Action | Yes | Uses `P500_ACTION_CODE` and remarks for every checked row |
 | Apply READY to Salary Structure | No; applies all READY rows | `APPLY_READY_MONTHLY_LIST` |
 | Final Submit | No; permanently finalizes all APPLIED rows | `FINALIZE_MONTHLY_LIST` |
+| Print Increment Letters | No; prints finalized rows for the selected salary month | Opens Page 503 after status is `POSTED` |
+
+Use these user-facing stage labels while retaining the database status values:
+
+| Database status | User-facing stage |
+|---|---|
+| `READY` | Increment Ready |
+| `APPLIED` | Salary Applied |
+| `POSTED` | Salary Done / Letter Ready |
+
+`Print Increment Letters` must be hidden until the selected company and salary
+month contain at least one `POSTED` row. Configure the button and its
+server-side condition from
+`increment/page_500_print_after_salary_done.sql`. The button opens Page 503 in
+a new window, leaving Page 500 available for the operator.
 
 ### 4.6 Selected Action region
 
@@ -278,7 +293,9 @@ After generation, HR reviews the list and changes only exceptions to temporary h
   `013` PF and `057` CPF;
 - leaves every other existing component unchanged, including `25`/`025` and
   `26`/`026`; head codes are normalized only for comparison;
-- writes old/new rows to `EMP_SALARY_STRUCTURE_HIST`;
+- snapshots every earning component in `EMP_SALARY_STRUCTURE_HIST`; unchanged
+  earnings keep equal old/new values so the finalized letter retains the full
+  historical Pay & Allowances table;
 - creates an `INCREMENT` action with `APPROVAL_STATUS = 'PENDING_FINAL'`;
 - updates employee last/next increment dates;
 - marks the occurrence `APPLIED`.
@@ -445,6 +462,11 @@ END;
 
 After each successful process, refresh the KPI cards and Interactive Report. On error, use the application error handler to display the package message and preserve the user’s filters.
 
+After a successful Final Submit, refresh the `Print Increment Letters` button.
+The button is then displayed because the finalized rows are `POSTED` (the
+user-facing **Salary Done** state). Do not show or enable letter printing while
+rows are merely `READY` or reversible `APPLIED`.
+
 ---
 
 ## 5. Page 501 — Increment Register
@@ -456,6 +478,13 @@ Read-only history and search page for every increment occurrence. `POSTED` rows 
 ### Regions
 
 Faceted Search + Interactive Report.
+
+Use `increment/page_501_increment_register.sql` as the read-only report source.
+The file defines the optional Page 501 filter items, report refresh settings,
+status labels and checksum-protected Page 502/Page 503 links. If the installed
+APEX version does not support Faceted Search over an Interactive Report, use
+the supplied page-item filter region and Interactive Report; alternatively,
+switch only the result region to a Classic Report before enabling facets.
 
 Facets:
 
@@ -505,6 +534,10 @@ company/salary month.
 - Report of `POSTED` increments only.
 - Columns: employee, designation, department, grade, effective date, old/new basic/gross, increment amount, letter number/status/date.
 - Letter template select list using `HR_LETTER_TEMPLATE.ACTION_TYPE='INCREMENT'`.
+
+Use `increment/page_502_increment_letter_report.sql` as the report source. Its
+row-level `PRINT_URL` is checksum-aware and opens Page 503 for exactly one
+finalized increment. Configure the report link to open in a new window.
 
 Buttons:
 
@@ -574,17 +607,33 @@ Template    : Blank with Attributes (No Grid)
 Paste the complete PL/SQL source from
 `increment/page_503_increment_letter_dynamic_content.sql`. It renders:
 
-- company letterhead and stable letter number;
-- employee, designation and department;
-- consideration/effective date and scale step;
-- old/new/difference for `001` Basic, `005` HR, `013` PF and `057` CPF;
-- old/new/difference for gross salary;
-- one A4 section per employee with a print page break;
-- a browser `Print All Letters` button.
+- an A4 print layout using the reference PDF's typography and structure;
+- generated letter heading using the `P503_COM_ID` company name/address and
+  the configured APEX static-file logo URL, followed by a stable reference
+  number and date;
+- employee name, designation, ID/code, department and location;
+- Personal File and Payroll Section copy list;
+- formal increment narrative with the full pay-scale expression and grade;
+- full previous-versus-increment Pay & Allowances table and gross salary;
+- calculated arrear duration and amount;
+- fixed system-generated note and `Page n of total` footer;
+- one employee per printed page and single/all browser print buttons.
 
 The comparison comes from `EMP_SALARY_STRUCTURE_HIST` for the finalized action,
 not from current salary structure, so later salary changes cannot alter an old
-letter.
+letter. For legacy increments posted before full earning snapshots were added,
+the print query fills missing unchanged rows from the current salary structure.
+Newly applied increments do not need this compatibility fallback.
+
+Printing isolates `#increment-letter-print-root` and hides the APEX page header,
+navigation, breadcrumbs, page title, footer, region header/buttons and print
+toolbar. The company heading inside the letter remains visible and uses the
+company selected by `P503_COM_ID`.
+The print button clones this isolated region into a clean browser window before
+opening print preview, preventing hidden APEX containers from leaving extra top
+space.
+In the browser print dialog use **A4**, **100% scale**, **Margins: None**, and
+turn **Headers and footers** off so the browser does not add its own URL/date.
 
 Security:
 

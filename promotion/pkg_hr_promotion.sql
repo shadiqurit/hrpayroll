@@ -1,22 +1,6 @@
-/* ============================================================================
-   HRMS PROMOTION: FINAL SUBMIT, SALARY POSTING AND LETTER GENERATION
-
-   The APEX page first saves HR_EMPLOYEE_PROMOTION and
-   HR_PROMOTION_SALARY_DTL as DRAFT data. The final Submit button calls
-   SUBMIT_AND_POST once.
-
-   EMP_SALARY_STRUCTURE is a current-state table, not an effective-dated table.
-   Therefore a future-dated promotion is rejected. The existing
-   TRG_EMP_SAL_STRUCT_HIST trigger writes old/new history automatically.
-
-   There is deliberately no COMMIT or full ROLLBACK in this package. APEX owns
-   the page transaction. The local savepoint only makes the routine atomic if a
-   caller catches its exception.
-   ============================================================================ */
-
 CREATE OR REPLACE PACKAGE HRMS.pkg_hr_promotion AS
-    /* Normal APEX call: uses PROMOTION_DEFAULT and does not require output
-       page items. */
+    /* Normal APEX call: selects PROMOTION_EN for grades 1-14 and
+       PROMOTION_BN for grades 15-20. No output page items are required. */
     PROCEDURE submit_and_post (
         p_promotion_id IN NUMBER,
         p_user_id      IN NUMBER
@@ -43,6 +27,20 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
             'NLS_NUMERIC_CHARACTERS=''.,'''
         );
     END money;
+
+    FUNCTION whole_money (p_amount IN NUMBER) RETURN VARCHAR2 IS
+    BEGIN
+        RETURN TO_CHAR(
+            NVL(p_amount, 0),
+            'FM999G999G999G990',
+            'NLS_NUMERIC_CHARACTERS=''.,'''
+        );
+    END whole_money;
+
+    FUNCTION bn_digits (p_value IN VARCHAR2) RETURN VARCHAR2 IS
+    BEGIN
+        RETURN TRANSLATE(p_value, '0123456789', '০১২৩৪৫৬৭৮৯');
+    END bn_digits;
 
     FUNCTION html (p_value IN VARCHAR2) RETURN VARCHAR2 IS
         l_value VARCHAR2(32767) := NVL(p_value, '');
@@ -80,6 +78,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         l_header_new_basic   hr_employee_promotion.new_basic%TYPE;
         l_reason             hr_employee_promotion.reason%TYPE;
         l_remarks            hr_employee_promotion.remarks%TYPE;
+        l_signatory_id       hr_employee_promotion.signatory_id%TYPE;
         l_status             hr_employee_promotion.approval_status%TYPE;
 
         l_emp_code           employees.emp_id%TYPE;
@@ -88,6 +87,8 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         l_current_job_id     employees.job_id%TYPE;
         l_current_desig_id   employees.desig_id%TYPE;
         l_current_dept_id    employees.dept_id%TYPE;
+        l_current_loc_id     employees.loc_id%TYPE;
+        l_current_com_id     employees.com_id%TYPE;
 
         l_old_basic          NUMBER := 0;
         l_new_basic          NUMBER := 0;
@@ -109,6 +110,19 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         l_old_designation    designations.designation%TYPE;
         l_new_designation    designations.designation%TYPE;
         l_department         departments.dept_name%TYPE;
+        l_location           locations.name%TYPE;
+        l_company_name       company.name%TYPE;
+        l_company_name_bn    VARCHAR2(300);
+        l_grade_order        job_grades.grade_order%TYPE;
+        l_grade_scale        job_grades.scales%TYPE;
+        l_scale_start        pay_scale_master.start_basic%TYPE;
+        l_scale_increment_1  pay_scale_master.increment_1%TYPE;
+        l_scale_eb           pay_scale_master.eb_basic%TYPE;
+        l_scale_increment_2  pay_scale_master.increment_2%TYPE;
+        l_scale_max          pay_scale_master.max_basic%TYPE;
+        l_pay_scale_en       VARCHAR2(1000);
+        l_pay_scale_bn       VARCHAR2(1000);
+        l_default_template   hr_letter_template.template_code%TYPE;
 
         l_error_code         NUMBER;
         l_error_message      VARCHAR2(2000);
@@ -148,6 +162,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                    new_basic,
                    reason,
                    remarks,
+                   signatory_id,
                    approval_status
               INTO l_promotion_no,
                    l_existing_action_id,
@@ -167,6 +182,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                    l_header_new_basic,
                    l_reason,
                    l_remarks,
+                   l_signatory_id,
                    l_status
               FROM hr_employee_promotion
              WHERE promotion_id = p_promotion_id
@@ -190,6 +206,42 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
             RAISE_APPLICATION_ERROR(
                 -20621,
                 'This DRAFT promotion is already linked to an employee action. Correct its status before posting.'
+            );
+        END IF;
+
+        IF l_signatory_id IS NULL THEN
+            RAISE_APPLICATION_ERROR(
+                -20625,
+                'Select the promotion-letter signatory before final submit.'
+            );
+        END IF;
+
+        SELECT COUNT(*)
+          INTO l_bad_count
+          FROM hr_letter_signatory
+         WHERE signatory_id = l_signatory_id
+           AND is_active = 'Y';
+
+        IF l_bad_count <> 1 THEN
+            RAISE_APPLICATION_ERROR(
+                -20626,
+                'The selected promotion-letter signatory is not active.'
+            );
+        END IF;
+
+        SELECT COUNT(*)
+          INTO l_bad_count
+          FROM hr_promotion_letter_recipient pr
+          JOIN hr_letter_recipient mr
+            ON mr.letter_recipient_id = pr.letter_recipient_id
+         WHERE pr.promotion_id = p_promotion_id
+           AND pr.is_active = 'Y'
+           AND mr.is_active <> 'Y';
+
+        IF l_bad_count > 0 THEN
+            RAISE_APPLICATION_ERROR(
+                -20627,
+                'One or more selected promotion-letter recipients are inactive.'
             );
         END IF;
 
@@ -219,13 +271,17 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                    emp_type,
                    job_id,
                    desig_id,
-                   dept_id
+                   dept_id,
+                   loc_id,
+                   com_id
               INTO l_emp_code,
                    l_emp_name,
                    l_current_emp_type,
                    l_current_job_id,
                    l_current_desig_id,
-                   l_current_dept_id
+                   l_current_dept_id,
+                   l_current_loc_id,
+                   l_current_com_id
               FROM employees
              WHERE id = l_emp_id
                FOR UPDATE NOWAIT;
@@ -661,6 +717,120 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         END;
 
         BEGIN
+            SELECT name
+              INTO l_location
+              FROM locations
+             WHERE id = l_current_loc_id;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                l_location := NULL;
+        END;
+
+        BEGIN
+            SELECT name
+              INTO l_company_name
+              FROM company
+             WHERE id = l_current_com_id;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                l_company_name := 'The IBN SINA Pharmaceutical Industry PLC';
+        END;
+
+        l_company_name := NVL(
+                              l_company_name,
+                              'The IBN SINA Pharmaceutical Industry PLC'
+                          );
+        l_company_name_bn := CASE
+            WHEN INSTR(UPPER(l_company_name), 'IBN SINA') > 0
+            THEN 'দি ইবনে সিনা ফার্মাসিউটিক্যাল ইন্ডাস্ট্রি পিএলসি'
+            ELSE l_company_name
+        END;
+
+        /* DESIGNATIONS.GRADE is the normal grade reference. NEW_JOB_ID is the
+           fallback because some promotion rows store the same grade reference
+           there. Grade order controls the required letter language. */
+        BEGIN
+            SELECT g.grade_order,
+                   g.scales
+              INTO l_grade_order,
+                   l_grade_scale
+              FROM job_grades g
+             WHERE g.id = NVL(
+                       (SELECT d.grade
+                          FROM designations d
+                         WHERE d.id = NVL(l_new_desig_id, l_current_desig_id)),
+                       NVL(l_new_job_id, l_current_job_id)
+                   );
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                RAISE_APPLICATION_ERROR(
+                    -20623,
+                    'The promoted designation/job is not linked to a valid job grade.'
+                );
+        END;
+
+        IF l_grade_order BETWEEN 1 AND 14 THEN
+            l_default_template := 'PROMOTION_EN';
+        ELSIF l_grade_order BETWEEN 15 AND 20 THEN
+            l_default_template := 'PROMOTION_BN';
+        ELSE
+            RAISE_APPLICATION_ERROR(
+                -20624,
+                'Promotion letter language is configured only for grade order 1 through 20.'
+            );
+        END IF;
+
+        BEGIN
+            SELECT s.start_basic,
+                   s.increment_1,
+                   s.eb_basic,
+                   s.increment_2,
+                   s.max_basic
+              INTO l_scale_start,
+                   l_scale_increment_1,
+                   l_scale_eb,
+                   l_scale_increment_2,
+                   l_scale_max
+              FROM (
+                    SELECT p.*
+                      FROM pay_scale_master p
+                     WHERE p.grade_id = NVL(
+                               (SELECT d.grade
+                                  FROM designations d
+                                 WHERE d.id = NVL(l_new_desig_id, l_current_desig_id)),
+                               NVL(l_new_job_id, l_current_job_id)
+                           )
+                       AND NVL(p.is_active, 'Y') = 'Y'
+                       AND TRUNC(l_effective_date) >=
+                           NVL(TRUNC(p.effective_from), DATE '1900-01-01')
+                       AND TRUNC(l_effective_date) <=
+                           NVL(TRUNC(p.effective_to), DATE '2999-12-31')
+                     ORDER BY NVL(p.effective_from, DATE '1900-01-01') DESC,
+                              p.revision_no DESC
+              ) s
+             WHERE ROWNUM = 1;
+
+            l_pay_scale_en := whole_money(l_scale_start)
+                              || '-' || whole_money(l_scale_increment_1)
+                              || '-' || whole_money(l_scale_eb)
+                              || ' - EB-' || whole_money(l_scale_increment_2)
+                              || '-' || whole_money(l_scale_max) || '/=';
+            l_pay_scale_bn := bn_digits(whole_money(l_scale_start))
+                              || '-' || bn_digits(whole_money(l_scale_increment_1))
+                              || '-' || bn_digits(whole_money(l_scale_eb))
+                              || ' - ইবি-' || bn_digits(whole_money(l_scale_increment_2))
+                              || '-' || bn_digits(whole_money(l_scale_max)) || '/=';
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                l_pay_scale_en := NVL(l_grade_scale, 'Applicable pay scale');
+                l_pay_scale_bn := REPLACE(
+                                      REPLACE(bn_digits(NVL(l_grade_scale, 'প্রযোজ্য পে-স্কেল')), 'EB', 'ইবি'),
+                                      'Eb',
+                                      'ইবি'
+                                  );
+        END;
+
+        BEGIN
             SELECT template_id,
                    subject_template,
                    body_template
@@ -671,7 +841,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
              WHERE is_active = 'Y'
                AND action_type = 'PROMOTION'
                AND ((p_template_id IS NOT NULL AND template_id = p_template_id)
-                    OR (p_template_id IS NULL AND template_code = 'PROMOTION_DEFAULT'))
+                    OR (p_template_id IS NULL AND template_code = l_default_template))
              ORDER BY CASE WHEN template_id = p_template_id THEN 1 ELSE 2 END
              FETCH FIRST 1 ROW ONLY;
         EXCEPTION
@@ -691,7 +861,15 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         l_body := REPLACE(l_body, '#OLD_DESIGNATION#', html(l_old_designation));
         l_body := REPLACE(l_body, '#NEW_DESIGNATION#', html(l_new_designation));
         l_body := REPLACE(l_body, '#DEPARTMENT#', html(l_department));
+        l_body := REPLACE(l_body, '#LOCATION#', html(l_location));
+        l_body := REPLACE(l_body, '#COMPANY_NAME#', html(l_company_name));
+        l_body := REPLACE(l_body, '#COMPANY_NAME_BN#', html(l_company_name_bn));
+        l_body := REPLACE(l_body, '#GRADE#', TO_CHAR(l_grade_order));
+        l_body := REPLACE(l_body, '#GRADE_BN#', bn_digits(TO_CHAR(l_grade_order)));
+        l_body := REPLACE(l_body, '#PAY_SCALE#', html(l_pay_scale_en));
+        l_body := REPLACE(l_body, '#PAY_SCALE_BN#', html(l_pay_scale_bn));
         l_body := REPLACE(l_body, '#EFFECTIVE_DATE#', TO_CHAR(l_effective_date, 'DD-Mon-YYYY'));
+        l_body := REPLACE(l_body, '#EFFECTIVE_DATE_BN#', bn_digits(TO_CHAR(l_effective_date, 'DD.MM.YYYY')));
         l_body := REPLACE(l_body, '#LETTER_DATE#', TO_CHAR(SYSDATE, 'DD-Mon-YYYY'));
         l_body := REPLACE(l_body, '#OLD_BASIC#', money(l_old_basic));
         l_body := REPLACE(l_body, '#NEW_BASIC#', money(l_new_basic));

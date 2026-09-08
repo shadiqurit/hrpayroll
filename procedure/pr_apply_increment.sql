@@ -231,40 +231,79 @@ BEGIN
         ent_by
     )
     /*
-       Annual increment changes only Basic, HR, PF and CPF. Every other
-       existing salary component—including head 025/026—remains untouched.
+       Snapshot every earning component for the increment letter and safe
+       reversal. Only Basic, HR, PF and CPF receive a calculated new amount;
+       all other earnings retain the same old/new value. Missing calculated
+       heads are included with an old amount of zero.
     */
     SELECT v_action_id,
            p_emp_id,
-           s.sals_id,
-           fh.slno,
-           fh.head_code,
-           NVL(s.amount, 0) AS old_amount,
-           fh.new_amount,
+           sh.sals_id,
+           sh.slno,
+           sh.head_code,
+           sh.old_amount,
+           sh.new_amount,
            'I',
            p_effective_date,
            p_remarks,
            p_user_id
-      FROM (
-            SELECT MAX(ah.head_id) AS slno,
-                   ah.head_code,
-                   NVL(
-                       HRMS.fn_get_salary_head_amount(
-                           p_grade_id       => v_grade_id,
-                           p_headcode       => LPAD(TRIM(ah.head_code), 3, '0'),
-                           p_basic          => v_new_basic,
-                           p_effective_date => p_effective_date
-                       ), 0
-                   ) AS new_amount
-              FROM allowance_head ah
-             WHERE LPAD(TRIM(ah.head_code), 3, '0')
-                   IN ('001', '005', '013', '057')
-             GROUP BY ah.head_code
-           ) fh
-           LEFT JOIN emp_salary_structure s
-                  ON s.employee_id = p_emp_id
-                 AND s.headcode = fh.head_code
-                 AND NVL(s.is_active, 'Y') = 'Y';
+       FROM (
+             SELECT s.sals_id,
+                    s.slno,
+                    s.headcode AS head_code,
+                    NVL(s.amount, 0) AS old_amount,
+                    CASE
+                        WHEN LPAD(TRIM(s.headcode), 3, '0')
+                             IN ('001', '005', '013', '057')
+                        THEN NVL(
+                                 HRMS.fn_get_salary_head_amount(
+                                     p_grade_id       => v_grade_id,
+                                     p_headcode       => LPAD(TRIM(s.headcode), 3, '0'),
+                                     p_basic          => v_new_basic,
+                                     p_effective_date => p_effective_date
+                                 ),
+                                 0
+                             )
+                        ELSE NVL(s.amount, 0)
+                    END AS new_amount
+               FROM emp_salary_structure s
+                    JOIN allowance_head ah
+                      ON ah.head_id = s.slno
+              WHERE s.employee_id = p_emp_id
+                AND NVL(s.is_active, 'Y') = 'Y'
+                AND (
+                     ah.head_type = 'EARNING'
+                     OR LPAD(TRIM(s.headcode), 3, '0')
+                        IN ('001', '005', '013', '057')
+                )
+
+             UNION ALL
+
+             SELECT NULL AS sals_id,
+                    ah.head_id AS slno,
+                    ah.head_code,
+                    0 AS old_amount,
+                    NVL(
+                        HRMS.fn_get_salary_head_amount(
+                            p_grade_id       => v_grade_id,
+                            p_headcode       => LPAD(TRIM(ah.head_code), 3, '0'),
+                            p_basic          => v_new_basic,
+                            p_effective_date => p_effective_date
+                        ),
+                        0
+                    ) AS new_amount
+               FROM allowance_head ah
+              WHERE LPAD(TRIM(ah.head_code), 3, '0')
+                    IN ('001', '005', '013', '057')
+                AND NOT EXISTS (
+                      SELECT 1
+                        FROM emp_salary_structure s
+                       WHERE s.employee_id = p_emp_id
+                         AND NVL(s.is_active, 'Y') = 'Y'
+                         AND LPAD(TRIM(s.headcode), 3, '0') =
+                             LPAD(TRIM(ah.head_code), 3, '0')
+                )
+           ) sh;
 
     MERGE INTO emp_salary_structure s
     USING (
