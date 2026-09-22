@@ -230,7 +230,7 @@ BEGIN
   color: #111;
   font-family: "Noto Sans Bengali", "Hind Siliguri", "SolaimanLipi",
                "Kalpurush", "Arial Unicode MS", sans-serif;
-  font-size: 17px;
+  font-size: 15px;
   line-height: 1.75;
 }
 .bengali-letter .letter-page {
@@ -238,7 +238,8 @@ BEGIN
   width: 210mm;
   min-height: 297mm;
   margin: 10px auto;
-  padding: 15mm 18mm;
+  /* Keep the pre-printed company-pad header and page edges clear. */
+  padding: 30mm 14mm 8mm;
   background: #fff;
 }
 .bengali-letter .letter-content { position: relative; z-index: 2; }
@@ -296,21 +297,25 @@ BEGIN
   align-items: flex-end;
   gap: 30px;
   width: 100%;
-  margin-top: 45px;
+  margin-top: 15px;
   break-inside: avoid;
   page-break-inside: avoid;
 }
 .bengali-letter .signature-block { flex: 0 0 45%; }
-.bengali-letter .signature-space { height: 65px; }
+.bengali-letter .signature-space { height: 30px; }
 .bengali-letter .signature-name { font-weight: 700; }
-.bengali-letter .copy-section { flex: 0 0 48%; font-size: 12px; }
+.bengali-letter .copy-section { flex: 0 0 48%; font-size: 11px; }
 .bengali-letter .copy-section ol { margin: 4px 0 0; padding-left: 25px; }
 .bengali-letter .copy-section li { margin: 0; line-height: 1.6; }
 @media screen {
   .bengali-letter .letter-page { box-shadow: 0 2px 12px rgba(0,0,0,.15); }
 }
 @media print {
-  @page { size: A4 portrait; margin: 15mm 18mm; }
+  @page {
+    size: A4 portrait;
+    /* Repeated on every physical company-pad page. */
+   margin: 30mm 10mm 8mm 20mm;
+  }
   html, body {
     width: 100% !important;
     margin: 0 !important;
@@ -331,13 +336,14 @@ BEGIN
     color: #000 !important;
     font-family: "Noto Sans Bengali", "Hind Siliguri", "SolaimanLipi",
                  "Kalpurush", "Arial Unicode MS", sans-serif !important;
-    font-size: 17px !important;
+    font-size: 14px !important;
     line-height: 1.75 !important;
   }
   .bengali-letter .letter-page {
     width: 100% !important;
     min-height: auto !important;
     margin: 0 !important;
+    /* @page supplies the repeating print clearance; avoid doubling it. */
     padding: 0 !important;
     box-shadow: none !important;
   }
@@ -364,7 +370,7 @@ BEGIN
   }
   .bengali-letter .letter-paragraph,
   .bengali-letter .terms > li {
-    font-size: 17px !important;
+    font-size: 14px !important;
     line-height: 1.75 !important;
   }
   .bengali-letter .salary-breakdown {
@@ -398,7 +404,7 @@ BEGIN
     justify-content: space-between !important;
     align-items: flex-end !important;
     width: 100% !important;
-    gap: 30px !important;
+    gap: 10px !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
@@ -411,7 +417,7 @@ BEGIN
   }
   .bengali-letter .copy-section {
     display: block !important;
-    font-size: 10px;
+    font-size: 11px;
     flex: 0 0 48% !important;
     width: 48% !important;
     margin: 0 !important;

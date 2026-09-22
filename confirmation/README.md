@@ -41,3 +41,22 @@ unique on the page.
 The Bengali source is UTF-8. Import/paste it without changing encoding. For
 best rendering, install or serve a Bengali font such as **Noto Sans Bengali**;
 the CSS also includes common fallback fonts.
+
+## Company-pad print layout
+
+Both confirmation-letter regions use the same A4 clearance when printing on
+the pre-printed company pad:
+
+- top clearance: `30mm` (reserved for the physical letterhead)
+- left and right clearance: `14mm`
+- bottom clearance: `8mm`
+
+The screen preview creates this clearance with `.letter-page` padding. Print
+uses the same values as the browser `@page` margin so they repeat on every
+physical page of a multi-page letter. The letter-page padding is therefore
+reset to zero only during printing, preventing the margin and padding from
+being added together.
+
+In the browser print dialog, use A4 paper, 100% scale, and disable the browser's
+headers and footers. Do not select "Fit to page", because it changes the
+physical offsets from the company-pad artwork.

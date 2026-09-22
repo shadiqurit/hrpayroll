@@ -337,11 +337,12 @@ BEGIN
 
     margin: 10px auto;
 
+    /* Keep the pre-printed company-pad header and page edges clear. */
     padding:
-        15mm
-        18mm
-        15mm
-        18mm;
+        30mm
+        14mm
+        8mm
+        14mm;
 
     background: #ffffff;
 
@@ -809,12 +810,15 @@ BEGIN
 
     @page {
         size: A4 portrait;
-        margin: 15mm 18mm; 
+        /* Repeated on every physical company-pad page. */
+        margin: 30mm 14mm 8mm;
     }
 
     html,
     body {
         width: 100% !important;        
+        margin: 0 !important;
+        padding: 0 !important;
         background: #ffffff !important;
         /* Force a larger font size and pure black text for print clarity */
         font-size: 17px !important; 
@@ -826,6 +830,8 @@ BEGIN
     #divToPrint,
     .confirmation-letter {
         width: 100% !important;        
+        margin: 0 !important;
+        padding: 0 !important;
         background: #ffffff !important;
         /* Ensure the larger size inherits down into your specific container */
         font-size: 17px !important;
@@ -836,7 +842,8 @@ BEGIN
         width: 100% !important;
         min-height: auto !important;
         margin: 0 !important;
-        padding: 0 !important; 
+        /* @page supplies the repeating print clearance; avoid doubling it. */
+        padding: 0 !important;
         box-shadow: none !important;
     }
 
