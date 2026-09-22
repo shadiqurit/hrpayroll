@@ -15,6 +15,7 @@
 DECLARE
     v_confirm_id       NUMBER;
     v_emp_id           NUMBER;
+    v_grade_id           NUMBER;
     v_confirm_date     DATE;
     v_status           VARCHAR2(20);
     v_grade_order      NUMBER;
@@ -23,6 +24,7 @@ DECLARE
     v_grade            VARCHAR2(100);
     v_designation      VARCHAR2(300);
     v_department       VARCHAR2(300);
+    v_department_en       VARCHAR2(300);
     v_location         VARCHAR2(300);
     v_location_code    VARCHAR2(50);
     v_scale_text       VARCHAR2(1000);
@@ -79,16 +81,18 @@ DECLARE
     FUNCTION bn_head_name(p_head_name IN VARCHAR2) RETURN VARCHAR2 IS
     BEGIN
         RETURN CASE UPPER(TRIM(p_head_name))
-            WHEN 'BASIC'                THEN 'মূল বেতন'
-            WHEN 'BASIC SALARY'         THEN 'মূল বেতন'
-            WHEN 'HOUSE RENT'           THEN 'বাড়ি ভাড়া ভাতা'
+            WHEN 'BASIC'                THEN 'মূল'
+            WHEN 'BASIC SALARY'         THEN 'মূল মজূরী'
+            WHEN 'HOUSE RENT'           THEN 'বাড়ি ভাড়া'
             WHEN 'HOUSE RENT ALLOWANCE' THEN 'বাড়ি ভাড়া ভাতা'
-            WHEN 'MEDICAL'              THEN 'চিকিৎসা ভাতা'
+            WHEN 'MEDICAL'              THEN 'চিকিৎসা'
             WHEN 'MEDICAL ALLOWANCE'    THEN 'চিকিৎসা ভাতা'
-            WHEN 'CONVEYANCE'           THEN 'যাতায়াত ভাতা'
+            WHEN 'CONVEYANCE'           THEN 'যাতায়াত'
             WHEN 'CONVEYANCE ALLOWANCE' THEN 'যাতায়াত ভাতা'
+            WHEN 'CO''S  CON. TO PF' THEN 'পি.এফ (কোম্পানী অংশ)'
             WHEN 'FOOD ALLOWANCE'       THEN 'খাদ্য ভাতা'
             WHEN 'SPECIAL ALLOWANCE'    THEN 'বিশেষ ভাতা'
+            WHEN 'ALLOWANCE'    THEN 'অন্যান্য ভাতা'
             ELSE NVL(p_head_name, '-')
         END;
     END bn_head_name;
@@ -116,15 +120,19 @@ BEGIN
     SELECT NVL(v.empcode, '-'),
            NVL(TRIM(e.name_bn), NVL(v.fullname, '-')),
            NVL(v.grade, '-'),
+           v.JOB_ID GRADE,
            NVL(TRIM(d.designation_bn), NVL(d.designation, NVL(v.designation, '-'))),
            NVL(TRIM(dp.dept_name_bn), NVL(dp.dept_name, NVL(v.department, '-'))),
+           NVL(dp.dept_name, NVL(v.department, '-')),
            NVL(v.locationname, '-'),
            NVL(v.loccode, '-')
       INTO v_emp_code,
            v_emp_name,
            v_grade,
+           v_grade_id,
            v_designation,
            v_department,
+           v_department_en,
            v_location,
            v_location_code
       FROM v_emp v
@@ -209,7 +217,7 @@ BEGIN
 <div class="print-toolbar no-print">
   <button type="button" class="t-Button t-Button--hot" onclick="printBengaliConfirmation();">
     <span class="fa fa-print" aria-hidden="true"></span>
-    নিশ্চিতকরণ পত্র প্রিন্ট করুন
+    Print Letter
   </button>
 </div>
 <div id="divToPrint" class="confirmation-letter bengali-letter" lang="bn">
@@ -295,7 +303,7 @@ BEGIN
 .bengali-letter .signature-block { flex: 0 0 45%; }
 .bengali-letter .signature-space { height: 65px; }
 .bengali-letter .signature-name { font-weight: 700; }
-.bengali-letter .copy-section { flex: 0 0 48%; font-size: 15px; }
+.bengali-letter .copy-section { flex: 0 0 48%; font-size: 12px; }
 .bengali-letter .copy-section ol { margin: 4px 0 0; padding-left: 25px; }
 .bengali-letter .copy-section li { margin: 0; line-height: 1.6; }
 @media screen {
@@ -403,6 +411,7 @@ BEGIN
   }
   .bengali-letter .copy-section {
     display: block !important;
+    font-size: 10px;
     flex: 0 0 48% !important;
     width: 48% !important;
     margin: 0 !important;
@@ -419,16 +428,16 @@ BEGIN
     END IF;
 
     htp.p('<div class="letter-content">');
-    htp.p('<div class="hr-department">মানবসম্পদ বিভাগ</div>');
+    htp.p('<div class="hr-department">Human Resource Department</div>');
     htp.p('<div class="ref-row">'
-          || '<div><strong>সূত্র:</strong> ' || esc(v_letter_no) || '</div>'
+          || '<div><strong>REF: </strong> ' || esc(v_letter_no) || '</div>'
           || '<div><strong>তারিখ:</strong> '
           || esc(bn_date(NVL(v_letter_date, SYSDATE))) || '</div>'
           || '</div>');
 
     htp.p('<div class="employee-block">'
           || '<div class="employee-name">' || esc(v_emp_name) || '</div>'
-          || '<div>কর্মচারী আইডি: ' || esc(v_emp_code) || '</div>'
+          || '<div>স্টাফ আইডি: ' || esc(v_emp_code) || '</div>'
           || '<div>' || esc(v_designation) || '</div>'
           || '<div>' || esc(v_department) || '</div>'
           || '<div>' || esc(v_location) || '</div>'
@@ -450,10 +459,10 @@ BEGIN
           || 'নিম্নোক্ত শর্তাবলি সাপেক্ষে স্থায়ী করা হলো।'
           || '</p>');
 
-    htp.p('<div class="terms-title">শর্তাবলি</div>');
-    htp.p('<ol class="terms">');
-    htp.p('<li>আপনাকে আইপিআই বেতন স্কেলের গ্রেড <strong>'
-          || esc(bn_digits(v_grade)) || '</strong>');
+    htp.p('<div class="terms-title">শর্তাবলিঃ </div>');
+    htp.p('<ol class="terms" style="list-style-type: bengali;">');
+    htp.p('<li>আপনাকে আইপিআই বেতন স্কেলের গ্রেড  '|| esc(bn_digits(v_grade_id)) ||' <strong>('
+          || esc((v_grade)) || ') </strong> ');
 
     IF v_scale_text IS NOT NULL THEN
         htp.p(' (' || esc(v_scale_text) || ')');
@@ -488,14 +497,14 @@ BEGIN
           || '</tr></table></li>');
 
     htp.p(q'~
-<li>কোম্পানির প্রচলিত নীতিমালা অনুযায়ী আপনি বিধিবদ্ধ ছুটি ও অন্যান্য ছুটির সুবিধা ভোগ করবেন;</li>
-<li>কর্তৃপক্ষের প্রয়োজনে আপনাকে কোম্পানির কার্যপরিধির অন্তর্ভুক্ত যেকোনো স্থানে এবং যেকোনো সময় কাজের দায়িত্ব প্রদান করা যেতে পারে;</li>
-<li>আপনি প্রতি বছর মূল বেতনের সমপরিমাণ ০২ (দুই)টি উৎসব বোনাস প্রাপ্য হবেন;</li>
-<li>আপনি কোম্পানির কর্মচারী ভবিষ্য তহবিলের সদস্য হিসেবে অন্তর্ভুক্ত হবেন এবং প্রচলিত বিধি অনুযায়ী এর সুবিধা প্রাপ্য হবেন;</li>
-<li>কোম্পানির প্রচলিত বিধি অনুযায়ী আপনি কর্মচারী গ্র্যাচুইটি তহবিলের সুবিধা প্রাপ্য হবেন;</li>
-<li>আপনি কোম্পানির সুপারঅ্যানুয়েশন তহবিলের সদস্য হিসেবে অন্তর্ভুক্ত হবেন এবং প্রচলিত বিধি অনুযায়ী এর সুবিধা প্রাপ্য হবেন;</li>
-<li>আপনি প্রতি বছর কোম্পানির মুনাফা অংশগ্রহণ তহবিল (WPPF) থেকে আনুপাতিক হারে লভ্যাংশ প্রাপ্য হবেন;</li>
-<li>আপনি চাকরি থেকে পদত্যাগ করলে অথবা কোম্পানি আপনার চাকরির অবসান ঘটালে, সংশ্লিষ্ট পক্ষকে চাকরিবিধি অনুযায়ী নোটিশ প্রদান করতে হবে অথবা মূল বেতনের ভিত্তিতে নোটিশের পরিবর্তে অর্থ প্রদান করতে হবে;</li>
+<li>কোম্পানির প্রচলিত নীতিমালা অনুযায়ী আপনি বিধিবদ্ধ ছুটি ও অন্যান্য ছুটির সুবিধা ভোগ করবেন ;</li>
+<li>কর্তৃপক্ষের প্রয়োজনে আপনাকে কোম্পানির কার্যপরিধির অন্তর্ভুক্ত যেকোনো স্থানে এবং যেকোনো কাজের দায়িত্ব প্রদান করা যেতে পারে ;</li>
+<li>আপনি প্রতি বছর মূল মজূরীর সমপরিমাণ ০২ (দুই)টি উৎসব বোনাস প্রাপ্য হবেন ;</li>
+<li>আপনি কোম্পানির কর্মচারী ভবিষ্য তহবিলের সদস্য হিসেবে অন্তর্ভুক্ত হবেন এবং প্রচলিত বিধি অনুযায়ী এর সুবিধা প্রাপ্য হবেন ;</li>
+<li>কোম্পানির প্রচলিত বিধি অনুযায়ী আপনি কর্মচারী গ্র্যাচুইটি তহবিলের সুবিধা প্রাপ্য হবেন ;</li>
+<li>আপনি কোম্পানির সুপারঅ্যানুয়েশন তহবিলের সদস্য হিসেবে অন্তর্ভুক্ত হবেন এবং প্রচলিত বিধি অনুযায়ী এর সুবিধা প্রাপ্য হবেন ;</li>
+<li>আপনি প্রতি বছর কোম্পানির মুনাফা অংশগ্রহণ তহবিল (WPPF) থেকে আনুপাতিক হারে লভ্যাংশ প্রাপ্য হবেন ;</li>
+<li>আপনি চাকরি থেকে পদত্যাগ করলে অথবা কোম্পানি আপনার চাকরির অবসান ঘটালে, সংশ্লিষ্ট পক্ষকে চাকরিবিধি অনুযায়ী নোটিশ প্রদান করতে হবে অথবা মূল মজূরীর ভিত্তিতে নোটিশের পরিবর্তে অর্থ প্রদান করতে হবে ;</li>
 <li>আপনি কোম্পানির বর্তমানে প্রচলিত এবং পরিচালনা পর্ষদ কর্তৃক সময়ে সময়ে সংশোধিত সকল নিয়মকানুন মেনে চলতে বাধ্য থাকবেন।</li>
 </ol>
 <p class="letter-paragraph" style="margin-top:30px;">
