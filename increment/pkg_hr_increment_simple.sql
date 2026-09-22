@@ -1042,9 +1042,21 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
         SELECT i.action_id,
                i.emp_id,
                e.emp_id,
-               TRIM(e.f_name || ' ' || e.l_name),
-               d.designation,
-               dp.dept_name,
+               CASE
+                   WHEN g.grade_order BETWEEN 15 AND 20
+                   THEN NVL(TRIM(e.name_bn), TRIM(e.f_name || ' ' || e.l_name))
+                   ELSE TRIM(e.f_name || ' ' || e.l_name)
+               END,
+               CASE
+                   WHEN g.grade_order BETWEEN 15 AND 20
+                   THEN NVL(TRIM(d.designation_bn), d.designation)
+                   ELSE d.designation
+               END,
+               CASE
+                   WHEN g.grade_order BETWEEN 15 AND 20
+                   THEN NVL(TRIM(dp.dept_name_bn), dp.dept_name)
+                   ELSE dp.dept_name
+               END,
                NVL(i.revised_effective_date, i.effective_date),
                i.old_basic,
                i.proposed_basic,
@@ -1067,6 +1079,8 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_increment_simple AS
                JOIN employees e ON e.id = i.emp_id
                LEFT JOIN designations d ON d.id = e.desig_id
                LEFT JOIN departments dp ON dp.id = e.dept_id
+               LEFT JOIN pay_scale_master ps ON ps.scale_id = i.scale_id
+               LEFT JOIN job_grades g ON g.id = ps.grade_id
          WHERE i.increment_id = p_increment_id
            AND i.status = 'POSTED';
 

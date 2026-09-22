@@ -277,8 +277,11 @@ BEGIN
                e.emp_id AS employee_id,
                NVL(e.empno, e.emp_id) AS employee_code,
                TRIM(e.f_name || ' ' || e.l_name) AS employee_name,
+               NVL(TRIM(e.name_bn), TRIM(e.f_name || ' ' || e.l_name)) AS employee_name_bn,
                d.designation,
+               NVL(TRIM(d.designation_bn), d.designation) AS designation_bn,
                dp.dept_name,
+               NVL(TRIM(dp.dept_name_bn), dp.dept_name) AS dept_name_bn,
                loc.name AS location_name,
                c.code AS company_code,
                c.name AS company_name,
@@ -382,11 +385,11 @@ BEGIN
               || '</div><div class="employee-lines">');
         htp.p('<div class="label">' || CASE WHEN l_is_bengali THEN 'নাম' ELSE 'Name' END
               || '</div><div>:</div><div>'
-              || shown(CASE WHEN l_is_bengali THEN r.employee_name ELSE UPPER(r.employee_name) END)
+              || shown(CASE WHEN l_is_bengali THEN r.employee_name_bn ELSE UPPER(r.employee_name) END)
               || '</div>');
         htp.p('<div class="label">' || CASE WHEN l_is_bengali THEN 'পদবী' ELSE 'Designation' END
               || '</div><div>:</div><div>'
-              || shown(CASE WHEN l_is_bengali THEN r.designation ELSE UPPER(r.designation) END)
+              || shown(CASE WHEN l_is_bengali THEN r.designation_bn ELSE UPPER(r.designation) END)
               || '</div>');
         htp.p('<div class="label">' || CASE WHEN l_is_bengali THEN 'কর্মচারী আইডি' ELSE 'Employee ID' END
               || '</div><div>:</div><div>' || shown(CASE WHEN l_is_bengali
@@ -397,7 +400,9 @@ BEGIN
                                                         THEN bn_digits(r.employee_code)
                                                         ELSE r.employee_code END) || '</div>');
         htp.p('<div class="label">' || CASE WHEN l_is_bengali THEN 'বিভাগ' ELSE 'Department' END
-              || '</div><div>:</div><div>' || shown(r.dept_name) || '</div>');
+              || '</div><div>:</div><div>'
+              || shown(CASE WHEN l_is_bengali THEN r.dept_name_bn ELSE r.dept_name END)
+              || '</div>');
         htp.p('<div class="label">' || CASE WHEN l_is_bengali THEN 'কর্মস্থল' ELSE 'Location' END
               || '</div><div>:</div><div>' || shown(r.location_name) || '</div>');
         htp.p('</div></div><aside><div class="copy-title">'

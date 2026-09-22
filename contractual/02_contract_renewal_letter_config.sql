@@ -171,8 +171,7 @@ EXCEPTION
 END;
 /
 
-/* Link generated letters directly to the renewal because the employee action
-   is deliberately created only during final salary posting. */
+/* Link each issued letter directly to its renewal. */
 DECLARE
     l_count PLS_INTEGER;
 BEGIN

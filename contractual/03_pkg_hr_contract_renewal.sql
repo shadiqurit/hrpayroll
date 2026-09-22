@@ -1,5 +1,6 @@
 CREATE OR REPLACE PACKAGE HRMS.PKG_HR_CONTRACT_RENEWAL AS
 
+    /* Create one editable renewal and copy the employee's live salary. */
     PROCEDURE CREATE_DRAFT (
         P_EMP_ID             IN  NUMBER,
         P_CURRENT_FROM_DATE  IN  DATE,
@@ -16,6 +17,17 @@ CREATE OR REPLACE PACKAGE HRMS.PKG_HR_CONTRACT_RENEWAL AS
         P_RENEWAL_ID         OUT NUMBER
     );
 
+    /* Page 520 one-click preparation. Dates, grade, scale, step and salary
+       details are derived from the employee's active contract/salary. */
+    PROCEDURE CREATE_DUE_RENEWAL (
+        P_EMP_ID       IN  NUMBER,
+        P_SALARY_MODE  IN  VARCHAR2,
+        P_TERM_MONTHS  IN  NUMBER,
+        P_USER_ID      IN  NUMBER,
+        P_RENEWAL_ID   OUT NUMBER
+    );
+
+    /* Save the editable header. Page 521 saves the salary/recipient grids first. */
     PROCEDURE SAVE_DRAFT (
         P_RENEWAL_ID     IN NUMBER,
         P_NEW_FROM_DATE  IN DATE,
@@ -31,42 +43,23 @@ CREATE OR REPLACE PACKAGE HRMS.PKG_HR_CONTRACT_RENEWAL AS
         P_USER_ID        IN NUMBER
     );
 
+    /* Discard proposed amounts and copy the current live salary again. */
     PROCEDURE REFRESH_SALARY_SNAPSHOT (
         P_RENEWAL_ID IN NUMBER,
         P_USER_ID    IN NUMBER
     );
 
-    PROCEDURE SYNC_DRAFT_TOTALS (
-        P_RENEWAL_ID IN NUMBER,
-        P_USER_ID    IN NUMBER
-    );
-
-    PROCEDURE SUBMIT_FOR_APPROVAL (
-        P_RENEWAL_ID IN NUMBER,
-        P_USER_ID    IN NUMBER
-    );
-
-    PROCEDURE RETURN_TO_DRAFT (
-        P_RENEWAL_ID IN NUMBER,
-        P_REASON     IN VARCHAR2,
-        P_USER_ID    IN NUMBER
-    );
-
-    PROCEDURE APPROVE_RENEWAL (
-        P_RENEWAL_ID IN  NUMBER,
-        P_USER_ID    IN  NUMBER,
-        P_LETTER_ID  OUT NUMBER
-    );
-
+    /* One final action: update salary/contract and generate the issued letter. */
     PROCEDURE FINAL_SUBMIT (
         P_RENEWAL_ID IN  NUMBER,
         P_USER_ID    IN  NUMBER,
-        P_ACTION_ID  OUT NUMBER
+        P_ACTION_ID  OUT NUMBER,
+        P_LETTER_ID  OUT NUMBER
     );
 
-    PROCEDURE CANCEL_RENEWAL (
+    /* Remove an unwanted draft. Posted renewals cannot be deleted. */
+    PROCEDURE DELETE_DRAFT (
         P_RENEWAL_ID IN NUMBER,
-        P_REASON     IN VARCHAR2,
         P_USER_ID    IN NUMBER
     );
 
@@ -78,16 +71,16 @@ SHOW ERRORS;
 
 CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
 
-    C_DRAFT      CONSTANT VARCHAR2(20) := 'DRAFT';
-    C_SUBMITTED  CONSTANT VARCHAR2(20) := 'SUBMITTED';
-    C_APPROVED   CONSTANT VARCHAR2(20) := 'APPROVED';
-    C_POSTED     CONSTANT VARCHAR2(20) := 'POSTED';
-    C_CANCELLED  CONSTANT VARCHAR2(20) := 'CANCELLED';
+    C_DRAFT  CONSTANT VARCHAR2(20) := 'DRAFT';
+    C_POSTED CONSTANT VARCHAR2(20) := 'POSTED';
 
     PROCEDURE ASSERT_USER (P_USER_ID IN NUMBER) IS
     BEGIN
         IF P_USER_ID IS NULL THEN
-            RAISE_APPLICATION_ERROR(-20700, 'Numeric application user ID is required.');
+            RAISE_APPLICATION_ERROR(
+                -20700,
+                'Numeric application user ID is required. Pass the populated APEX USER_ID session item.'
+            );
         END IF;
     END ASSERT_USER;
 
@@ -133,27 +126,10 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
             WHEN '11' THEN 'নভেম্বর'
             WHEN '12' THEN 'ডিসেম্বর'
         END;
+
         RETURN BN_DIGITS(TO_CHAR(P_DATE, 'DD')) || ' ' || L_MONTH || ', '
                || BN_DIGITS(TO_CHAR(P_DATE, 'YYYY')) || ' খ্রি.';
     END BN_DATE;
-
-    PROCEDURE WRITE_AUDIT (
-        P_RENEWAL_ID  IN NUMBER,
-        P_EVENT_TYPE  IN VARCHAR2,
-        P_FROM_STATUS IN VARCHAR2,
-        P_TO_STATUS   IN VARCHAR2,
-        P_REMARKS     IN VARCHAR2,
-        P_USER_ID     IN NUMBER
-    ) IS
-    BEGIN
-        INSERT INTO HRMS.HR_CONTRACT_RENEWAL_AUDIT (
-            RENEWAL_ID, EVENT_TYPE, FROM_STATUS, TO_STATUS,
-            EVENT_REMARKS, EVENT_BY, EVENT_DATE
-        ) VALUES (
-            P_RENEWAL_ID, P_EVENT_TYPE, P_FROM_STATUS, P_TO_STATUS,
-            P_REMARKS, P_USER_ID, SYSDATE
-        );
-    END WRITE_AUDIT;
 
     PROCEDURE ASSERT_DATES (
         P_CURRENT_TO_DATE IN DATE,
@@ -198,13 +174,13 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
         P_GRADE_TEXT    OUT VARCHAR2,
         P_PAY_SCALE     OUT VARCHAR2
     ) IS
-        L_GRADE_ORDER   HRMS.JOB_GRADES.GRADE_ORDER%TYPE;
-        L_GRADE_CODE    HRMS.JOB_GRADES.GRADE_CODE%TYPE;
-        L_START_BASIC   HRMS.PAY_SCALE_MASTER.START_BASIC%TYPE;
-        L_INCREMENT_1   HRMS.PAY_SCALE_MASTER.INCREMENT_1%TYPE;
-        L_EB_BASIC      HRMS.PAY_SCALE_MASTER.EB_BASIC%TYPE;
-        L_INCREMENT_2   HRMS.PAY_SCALE_MASTER.INCREMENT_2%TYPE;
-        L_MAX_BASIC     HRMS.PAY_SCALE_MASTER.MAX_BASIC%TYPE;
+        L_GRADE_ORDER  HRMS.JOB_GRADES.GRADE_ORDER%TYPE;
+        L_GRADE_CODE   HRMS.JOB_GRADES.GRADE_CODE%TYPE;
+        L_START_BASIC  HRMS.PAY_SCALE_MASTER.START_BASIC%TYPE;
+        L_INCREMENT_1  HRMS.PAY_SCALE_MASTER.INCREMENT_1%TYPE;
+        L_EB_BASIC     HRMS.PAY_SCALE_MASTER.EB_BASIC%TYPE;
+        L_INCREMENT_2  HRMS.PAY_SCALE_MASTER.INCREMENT_2%TYPE;
+        L_MAX_BASIC    HRMS.PAY_SCALE_MASTER.MAX_BASIC%TYPE;
     BEGIN
         IF P_GRADE_ID IS NULL OR P_SCALE_ID IS NULL OR P_STEP_NO IS NULL THEN
             RAISE_APPLICATION_ERROR(-20705, 'New grade, pay scale, and step are required.');
@@ -238,8 +214,9 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
 
         P_GRADE_TEXT := NVL(TO_CHAR(L_GRADE_ORDER), L_GRADE_CODE);
         IF P_GRADE_TEXT IS NULL THEN
-            RAISE_APPLICATION_ERROR(-20742, 'Selected grade has no grade order or grade code.');
+            RAISE_APPLICATION_ERROR(-20706, 'Selected grade has no grade order or grade code.');
         END IF;
+
         P_PAY_SCALE := MONEY(L_START_BASIC)
                        || '-' || MONEY(L_INCREMENT_1)
                        || '-' || MONEY(L_EB_BASIC)
@@ -248,7 +225,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
     EXCEPTION
         WHEN NO_DATA_FOUND THEN
             RAISE_APPLICATION_ERROR(
-                -20706,
+                -20707,
                 'The selected active pay scale/step is not valid for the grade and renewal date.'
             );
     END GET_SCALE_VALUES;
@@ -277,9 +254,9 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
                          WHEN LPAD(TRIM(HEADCODE), 3, '0') = '001' OR SLNO = 1
                          THEN NEW_AMOUNT
                        END), 0),
-               NVL(SUM(CASE WHEN NVL(HEAD_TYPE, 'EARNING') = 'EARNING'
+               NVL(SUM(CASE WHEN HEAD_TYPE = 'EARNING'
                             THEN OLD_AMOUNT ELSE 0 END), 0),
-               NVL(SUM(CASE WHEN NVL(HEAD_TYPE, 'EARNING') = 'EARNING'
+               NVL(SUM(CASE WHEN HEAD_TYPE = 'EARNING'
                             THEN NEW_AMOUNT ELSE 0 END), 0)
           INTO L_DETAIL_COUNT,
                L_BASIC_COUNT,
@@ -291,40 +268,33 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
          WHERE RENEWAL_ID = P_RENEWAL_ID;
 
         IF L_DETAIL_COUNT = 0 THEN
-            RAISE_APPLICATION_ERROR(-20707, 'At least one salary detail is required.');
+            RAISE_APPLICATION_ERROR(-20708, 'At least one salary detail is required.');
         ELSIF L_BASIC_COUNT <> 1 THEN
-            RAISE_APPLICATION_ERROR(-20708, 'Exactly one Basic Salary head is required.');
-        END IF;
-
-        SELECT COUNT(*)
-          INTO L_BAD_COUNT
-          FROM HRMS.HR_CONTRACT_RENEWAL_SALARY
-         WHERE RENEWAL_ID = P_RENEWAL_ID
-           AND (SLNO IS NULL OR HEADCODE IS NULL
-                OR OLD_AMOUNT IS NULL OR OLD_AMOUNT < 0
-                OR NEW_AMOUNT IS NULL OR NEW_AMOUNT < 0);
-
-        IF L_BAD_COUNT > 0 THEN
-            RAISE_APPLICATION_ERROR(-20709, 'Salary details contain a missing head or invalid amount.');
+            RAISE_APPLICATION_ERROR(-20709, 'Exactly one Basic Salary head is required.');
         END IF;
 
         SELECT COUNT(*)
           INTO L_BAD_COUNT
           FROM HRMS.HR_CONTRACT_RENEWAL_SALARY D
          WHERE D.RENEWAL_ID = P_RENEWAL_ID
-           AND NOT EXISTS (
-               SELECT 1
-                 FROM HRMS.ALLOWANCE_HEAD AH
-                WHERE AH.HEAD_ID = D.SLNO
-                  AND LPAD(TRIM(AH.HEAD_CODE), 3, '0') =
-                      LPAD(TRIM(D.HEADCODE), 3, '0')
-                  AND AH.HEAD_TYPE = D.HEAD_TYPE
+           AND (
+               D.SLNO IS NULL OR D.HEADCODE IS NULL
+               OR D.OLD_AMOUNT IS NULL OR D.OLD_AMOUNT < 0
+               OR D.NEW_AMOUNT IS NULL OR D.NEW_AMOUNT < 0
+               OR NOT EXISTS (
+                   SELECT 1
+                     FROM HRMS.ALLOWANCE_HEAD AH
+                    WHERE AH.HEAD_ID = D.SLNO
+                      AND LPAD(TRIM(AH.HEAD_CODE), 3, '0') =
+                          LPAD(TRIM(D.HEADCODE), 3, '0')
+                      AND AH.HEAD_TYPE = D.HEAD_TYPE
+               )
            );
 
         IF L_BAD_COUNT > 0 THEN
             RAISE_APPLICATION_ERROR(
-                -20739,
-                'Every salary detail must use a valid Allowance Head and matching head code.'
+                -20710,
+                'Salary details contain an invalid amount or Allowance Head.'
             );
         END IF;
     END CALCULATE_TOTALS;
@@ -334,7 +304,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
         P_BASIC      IN NUMBER,
         P_USER_ID    IN NUMBER
     ) IS
-        L_COUNT PLS_INTEGER;
     BEGIN
         UPDATE HRMS.HR_CONTRACT_RENEWAL_SALARY
            SET NEW_AMOUNT   = P_BASIC,
@@ -343,158 +312,35 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
          WHERE RENEWAL_ID = P_RENEWAL_ID
            AND (LPAD(TRIM(HEADCODE), 3, '0') = '001' OR SLNO = 1);
 
-        L_COUNT := SQL%ROWCOUNT;
-        IF L_COUNT <> 1 THEN
-            RAISE_APPLICATION_ERROR(
-                -20708,
-                'Exactly one Basic Salary head must exist before a pay-scale basic can be applied.'
-            );
+        IF SQL%ROWCOUNT <> 1 THEN
+            RAISE_APPLICATION_ERROR(-20709, 'Exactly one Basic Salary head is required.');
         END IF;
     END APPLY_SCALE_BASIC;
 
-    PROCEDURE CREATE_DRAFT (
-        P_EMP_ID             IN  NUMBER,
-        P_CURRENT_FROM_DATE  IN  DATE,
-        P_CURRENT_TO_DATE    IN  DATE,
-        P_OLD_GRADE_ID       IN  NUMBER,
-        P_OLD_SCALE_ID       IN  NUMBER,
-        P_OLD_STEP_NO        IN  NUMBER,
-        P_NEW_FROM_DATE      IN  DATE,
-        P_NEW_TO_DATE        IN  DATE,
-        P_NEW_GRADE_ID       IN  NUMBER,
-        P_NEW_SCALE_ID       IN  NUMBER,
-        P_NEW_STEP_NO        IN  NUMBER,
-        P_USER_ID            IN  NUMBER,
-        P_RENEWAL_ID         OUT NUMBER
+    PROCEDURE COPY_LIVE_SALARY (
+        P_RENEWAL_ID IN NUMBER,
+        P_EMP_ID     IN NUMBER,
+        P_BASIC      IN NUMBER,
+        P_USER_ID    IN NUMBER
     ) IS
-        L_CURRENT_FROM       DATE;
-        L_CURRENT_TO         DATE;
-        L_OLD_GRADE_ID       NUMBER;
-        L_OLD_SCALE_ID       NUMBER;
-        L_OLD_STEP_NO        NUMBER;
-        L_BASIC              NUMBER;
-        L_GRADE_TEXT         VARCHAR2(100);
-        L_PAY_SCALE          VARCHAR2(300);
-        L_EMP_CODE           VARCHAR2(30);
-        L_EMP_NAME           VARCHAR2(200);
-        L_DESIGNATION        VARCHAR2(150);
-        L_DEPARTMENT         VARCHAR2(150);
-        L_LOCATION           VARCHAR2(150);
-        L_ADDRESS            VARCHAR2(500);
-        L_COMPANY            VARCHAR2(200);
-        L_OLD_BASIC          NUMBER;
-        L_NEW_BASIC          NUMBER;
-        L_OLD_GROSS          NUMBER;
-        L_NEW_GROSS          NUMBER;
-        L_COUNT              PLS_INTEGER;
+        L_BAD_COUNT PLS_INTEGER;
     BEGIN
-        ASSERT_USER(P_USER_ID);
+        SELECT COUNT(*)
+          INTO L_BAD_COUNT
+          FROM HRMS.EMP_SALARY_STRUCTURE S
+          LEFT JOIN HRMS.ALLOWANCE_HEAD AH ON AH.HEAD_ID = S.SLNO
+         WHERE S.EMPLOYEE_ID = P_EMP_ID
+           AND NVL(S.IS_ACTIVE, 'Y') = 'Y'
+           AND (S.HEADCODE IS NULL OR AH.HEAD_ID IS NULL
+                OR LPAD(TRIM(AH.HEAD_CODE), 3, '0') <>
+                   LPAD(TRIM(S.HEADCODE), 3, '0'));
 
-        IF P_EMP_ID IS NULL THEN
-            RAISE_APPLICATION_ERROR(-20710, 'Employee is required.');
+        IF L_BAD_COUNT > 0 THEN
+            RAISE_APPLICATION_ERROR(
+                -20711,
+                'Live salary contains a missing or mismatched Allowance Head.'
+            );
         END IF;
-
-        SELECT COUNT(*) INTO L_COUNT
-          FROM HRMS.HR_CONTRACT_RENEWAL
-         WHERE EMP_ID = P_EMP_ID
-           AND APPROVAL_STATUS IN (C_DRAFT, C_SUBMITTED, C_APPROVED);
-
-        IF L_COUNT > 0 THEN
-            RAISE_APPLICATION_ERROR(-20711, 'This employee already has an unfinished renewal.');
-        END IF;
-
-        BEGIN
-            SELECT CONTRACT_FROM_DATE, CONTRACT_TO_DATE,
-                   GRADE_ID, SCALE_ID, STEP_NO
-              INTO L_CURRENT_FROM, L_CURRENT_TO,
-                   L_OLD_GRADE_ID, L_OLD_SCALE_ID, L_OLD_STEP_NO
-              FROM HRMS.HR_EMPLOYEE_CONTRACT
-             WHERE EMP_ID = P_EMP_ID
-               AND CONTRACT_STATUS = 'ACTIVE'
-             FOR UPDATE NOWAIT;
-        EXCEPTION
-            WHEN NO_DATA_FOUND THEN
-                IF P_CURRENT_FROM_DATE IS NULL OR P_CURRENT_TO_DATE IS NULL
-                   OR P_OLD_GRADE_ID IS NULL OR P_OLD_SCALE_ID IS NULL
-                   OR P_OLD_STEP_NO IS NULL
-                THEN
-                    RAISE_APPLICATION_ERROR(
-                        -20712,
-                        'First renewal requires the employee current contract dates, grade, scale, and step.'
-                    );
-                END IF;
-
-                IF TRUNC(P_CURRENT_TO_DATE) < TRUNC(P_CURRENT_FROM_DATE) THEN
-                    RAISE_APPLICATION_ERROR(-20713, 'Current contract dates are invalid.');
-                END IF;
-
-                L_CURRENT_FROM := TRUNC(P_CURRENT_FROM_DATE);
-                L_CURRENT_TO   := TRUNC(P_CURRENT_TO_DATE);
-                L_OLD_GRADE_ID := P_OLD_GRADE_ID;
-                L_OLD_SCALE_ID := P_OLD_SCALE_ID;
-                L_OLD_STEP_NO  := P_OLD_STEP_NO;
-
-                INSERT INTO HRMS.HR_EMPLOYEE_CONTRACT (
-                    EMP_ID, CONTRACT_FROM_DATE, CONTRACT_TO_DATE,
-                    GRADE_ID, SCALE_ID, STEP_NO, CONTRACT_STATUS,
-                    CREATED_BY, CREATED_DATE
-                ) VALUES (
-                    P_EMP_ID, L_CURRENT_FROM, L_CURRENT_TO,
-                    L_OLD_GRADE_ID, L_OLD_SCALE_ID, L_OLD_STEP_NO, 'ACTIVE',
-                    P_USER_ID, SYSDATE
-                );
-        END;
-
-        ASSERT_DATES(L_CURRENT_TO, P_NEW_FROM_DATE, P_NEW_TO_DATE);
-        GET_SCALE_VALUES(P_NEW_GRADE_ID, P_NEW_SCALE_ID, P_NEW_STEP_NO,
-                         P_NEW_FROM_DATE, L_BASIC, L_GRADE_TEXT, L_PAY_SCALE);
-
-        BEGIN
-            SELECT E.EMP_ID,
-                   TRIM(E.F_NAME || ' ' || E.L_NAME),
-                   D.DESIGNATION,
-                   DP.DEPT_NAME,
-                   L.NAME,
-                   E.ADDRESS,
-                   C.NAME
-              INTO L_EMP_CODE,
-                   L_EMP_NAME,
-                   L_DESIGNATION,
-                   L_DEPARTMENT,
-                   L_LOCATION,
-                   L_ADDRESS,
-                   L_COMPANY
-              FROM HRMS.EMPLOYEES E
-              LEFT JOIN HRMS.DESIGNATIONS D ON D.ID = E.DESIG_ID
-              LEFT JOIN HRMS.DEPARTMENTS DP ON DP.ID = E.DEPT_ID
-              LEFT JOIN HRMS.LOCATIONS L ON L.ID = E.LOC_ID
-              LEFT JOIN HRMS.COMPANY C ON C.ID = E.COM_ID
-             WHERE E.ID = P_EMP_ID;
-        EXCEPTION
-            WHEN NO_DATA_FOUND THEN
-                RAISE_APPLICATION_ERROR(-20714, 'Employee was not found.');
-        END;
-
-        INSERT INTO HRMS.HR_CONTRACT_RENEWAL (
-            RENEWAL_NO, EMP_ID,
-            EMP_CODE_SNAPSHOT, EMP_NAME_SNAPSHOT, DESIGNATION_SNAPSHOT,
-            DEPARTMENT_SNAPSHOT, LOCATION_SNAPSHOT, ADDRESS_SNAPSHOT,
-            COMPANY_SNAPSHOT, GRADE_SNAPSHOT, PAY_SCALE_SNAPSHOT,
-            CURRENT_FROM_DATE, CURRENT_TO_DATE, NEW_FROM_DATE, NEW_TO_DATE,
-            OLD_GRADE_ID, NEW_GRADE_ID, OLD_SCALE_ID, NEW_SCALE_ID,
-            OLD_STEP_NO, NEW_STEP_NO, APPROVAL_STATUS, VERSION_NO,
-            PREPARED_BY, PREPARED_DATE, CREATED_BY, CREATED_DATE
-        ) VALUES (
-            NULL, P_EMP_ID,
-            L_EMP_CODE, L_EMP_NAME, L_DESIGNATION,
-            L_DEPARTMENT, L_LOCATION, L_ADDRESS,
-            L_COMPANY, L_GRADE_TEXT, L_PAY_SCALE,
-            L_CURRENT_FROM, L_CURRENT_TO,
-            TRUNC(P_NEW_FROM_DATE), TRUNC(P_NEW_TO_DATE),
-            L_OLD_GRADE_ID, P_NEW_GRADE_ID, L_OLD_SCALE_ID, P_NEW_SCALE_ID,
-            L_OLD_STEP_NO, P_NEW_STEP_NO, C_DRAFT, 0,
-            P_USER_ID, SYSDATE, P_USER_ID, SYSDATE
-        ) RETURNING RENEWAL_ID INTO P_RENEWAL_ID;
 
         INSERT INTO HRMS.HR_CONTRACT_RENEWAL_SALARY (
             RENEWAL_ID, EMP_ID, SALS_ID, SLNO, HEADCODE, HEAD_NAME,
@@ -516,26 +362,261 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
                P_USER_ID,
                SYSDATE
           FROM HRMS.EMP_SALARY_STRUCTURE S
-          LEFT JOIN HRMS.ALLOWANCE_HEAD AH ON AH.HEAD_ID = S.SLNO
+          JOIN HRMS.ALLOWANCE_HEAD AH ON AH.HEAD_ID = S.SLNO
          WHERE S.EMPLOYEE_ID = P_EMP_ID
            AND NVL(S.IS_ACTIVE, 'Y') = 'Y';
 
         IF SQL%ROWCOUNT = 0 THEN
-            RAISE_APPLICATION_ERROR(-20715, 'Employee has no active salary structure to renew.');
+            RAISE_APPLICATION_ERROR(-20712, 'Employee has no active salary structure.');
         END IF;
 
-        APPLY_SCALE_BASIC(P_RENEWAL_ID, L_BASIC, P_USER_ID);
+        APPLY_SCALE_BASIC(P_RENEWAL_ID, P_BASIC, P_USER_ID);
+    END COPY_LIVE_SALARY;
+
+    /* Recalculate only salary heads that are explicitly configured on the
+       selected pay scale. Unconfigured heads keep their copied live amount. */
+    PROCEDURE APPLY_AUTO_SALARY (
+        P_RENEWAL_ID IN NUMBER,
+        P_SCALE_ID   IN NUMBER,
+        P_BASIC      IN NUMBER,
+        P_USER_ID    IN NUMBER
+    ) IS
+        L_HR         HRMS.PAY_SCALE_MASTER.HR%TYPE;
+        L_CPF        HRMS.PAY_SCALE_MASTER.CPF%TYPE;
+        L_PFCONT     HRMS.PAY_SCALE_MASTER.PFCONT%TYPE;
+        L_CONV       HRMS.PAY_SCALE_MASTER.CONV%TYPE;
+        L_MEDICAL    HRMS.PAY_SCALE_MASTER.MEDICAL%TYPE;
+        L_ALLOWANCE  HRMS.PAY_SCALE_MASTER.ALLOWANCE%TYPE;
+        L_SAF        HRMS.PAY_SCALE_MASTER.SAF%TYPE;
+    BEGIN
+        SELECT HR, CPF, PFCONT, CONV, MEDICAL, ALLOWANCE, SAF
+          INTO L_HR, L_CPF, L_PFCONT, L_CONV, L_MEDICAL, L_ALLOWANCE, L_SAF
+          FROM HRMS.PAY_SCALE_MASTER
+         WHERE SCALE_ID = P_SCALE_ID;
+
+        UPDATE HRMS.HR_CONTRACT_RENEWAL_SALARY
+           SET NEW_AMOUNT =
+                   CASE LPAD(TRIM(HEADCODE), 3, '0')
+                       WHEN '001' THEN P_BASIC
+                       WHEN '005' THEN
+                           CASE WHEN L_HR IS NOT NULL
+                                THEN ROUND(P_BASIC * L_HR / 100)
+                                ELSE NEW_AMOUNT END
+                       WHEN '013' THEN
+                           CASE WHEN L_PFCONT IS NOT NULL
+                                THEN ROUND(P_BASIC * L_PFCONT / 100)
+                                ELSE NEW_AMOUNT END
+                       WHEN '057' THEN
+                           CASE WHEN L_CPF IS NOT NULL
+                                THEN ROUND(P_BASIC * L_CPF / 100)
+                                ELSE NEW_AMOUNT END
+                       WHEN '007' THEN NVL(L_CONV, NEW_AMOUNT)
+                       WHEN '010' THEN NVL(L_MEDICAL, NEW_AMOUNT)
+                       WHEN '037' THEN NVL(L_ALLOWANCE, NEW_AMOUNT)
+                       WHEN '075' THEN NVL(L_SAF, NEW_AMOUNT)
+                       ELSE NEW_AMOUNT
+                   END,
+               UPDATED_BY   = P_USER_ID,
+               UPDATED_DATE = SYSDATE
+         WHERE RENEWAL_ID = P_RENEWAL_ID
+           AND LPAD(TRIM(HEADCODE), 3, '0') IN
+               ('001', '005', '007', '010', '013', '037', '057', '075');
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE_APPLICATION_ERROR(-20744, 'The selected pay scale was not found.');
+    END APPLY_AUTO_SALARY;
+
+    PROCEDURE UPDATE_TOTALS (
+        P_RENEWAL_ID IN NUMBER,
+        P_USER_ID    IN NUMBER
+    ) IS
+        L_OLD_BASIC NUMBER;
+        L_NEW_BASIC NUMBER;
+        L_OLD_GROSS NUMBER;
+        L_NEW_GROSS NUMBER;
+    BEGIN
         CALCULATE_TOTALS(P_RENEWAL_ID, L_OLD_BASIC, L_NEW_BASIC,
                          L_OLD_GROSS, L_NEW_GROSS);
 
         UPDATE HRMS.HR_CONTRACT_RENEWAL
-           SET OLD_BASIC = L_OLD_BASIC,
-               NEW_BASIC = L_NEW_BASIC,
-               OLD_GROSS = L_OLD_GROSS,
-               NEW_GROSS = L_NEW_GROSS
+           SET OLD_BASIC    = L_OLD_BASIC,
+               NEW_BASIC    = L_NEW_BASIC,
+               OLD_GROSS    = L_OLD_GROSS,
+               NEW_GROSS    = L_NEW_GROSS,
+               UPDATED_BY   = P_USER_ID,
+               UPDATED_DATE = SYSDATE,
+               VERSION_NO   = VERSION_NO + 1
          WHERE RENEWAL_ID = P_RENEWAL_ID;
+    END UPDATE_TOTALS;
 
-        /* Default copy list. Page 521 can edit this list before submit. */
+    PROCEDURE CREATE_DRAFT (
+        P_EMP_ID             IN  NUMBER,
+        P_CURRENT_FROM_DATE  IN  DATE,
+        P_CURRENT_TO_DATE    IN  DATE,
+        P_OLD_GRADE_ID       IN  NUMBER,
+        P_OLD_SCALE_ID       IN  NUMBER,
+        P_OLD_STEP_NO        IN  NUMBER,
+        P_NEW_FROM_DATE      IN  DATE,
+        P_NEW_TO_DATE        IN  DATE,
+        P_NEW_GRADE_ID       IN  NUMBER,
+        P_NEW_SCALE_ID       IN  NUMBER,
+        P_NEW_STEP_NO        IN  NUMBER,
+        P_USER_ID            IN  NUMBER,
+        P_RENEWAL_ID         OUT NUMBER
+    ) IS
+        L_CURRENT_FROM  DATE;
+        L_CURRENT_TO    DATE;
+        L_OLD_GRADE_ID  NUMBER;
+        L_OLD_SCALE_ID  NUMBER;
+        L_OLD_STEP_NO   NUMBER;
+        L_BASIC         NUMBER;
+        L_GRADE_TEXT    VARCHAR2(100);
+        L_PAY_SCALE     VARCHAR2(300);
+        L_EMP_CODE      VARCHAR2(30);
+        L_EMP_NAME      VARCHAR2(200);
+        L_DESIGNATION   VARCHAR2(150);
+        L_DEPARTMENT    VARCHAR2(150);
+        L_LOCATION      VARCHAR2(150);
+        L_ADDRESS       VARCHAR2(500);
+        L_COMPANY       VARCHAR2(200);
+        L_COUNT         PLS_INTEGER;
+        L_BASELINE_YN   VARCHAR2(1) := 'N';
+        L_SIGNATORY_ID  NUMBER;
+        L_TEMPLATE_ID   NUMBER;
+    BEGIN
+        ASSERT_USER(P_USER_ID);
+
+        IF P_EMP_ID IS NULL THEN
+            RAISE_APPLICATION_ERROR(-20713, 'Employee is required.');
+        END IF;
+
+        SELECT COUNT(*) INTO L_COUNT
+          FROM HRMS.HR_CONTRACT_RENEWAL
+         WHERE EMP_ID = P_EMP_ID
+           AND STATUS = C_DRAFT;
+
+        IF L_COUNT > 0 THEN
+            RAISE_APPLICATION_ERROR(-20714, 'This employee already has a renewal draft.');
+        END IF;
+
+        BEGIN
+            SELECT CONTRACT_FROM_DATE, CONTRACT_TO_DATE,
+                   GRADE_ID, SCALE_ID, STEP_NO
+              INTO L_CURRENT_FROM, L_CURRENT_TO,
+                   L_OLD_GRADE_ID, L_OLD_SCALE_ID, L_OLD_STEP_NO
+              FROM HRMS.HR_EMPLOYEE_CONTRACT
+             WHERE EMP_ID = P_EMP_ID
+               AND CONTRACT_STATUS = 'ACTIVE'
+             FOR UPDATE NOWAIT;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                IF P_CURRENT_FROM_DATE IS NULL OR P_CURRENT_TO_DATE IS NULL
+                   OR P_OLD_GRADE_ID IS NULL OR P_OLD_SCALE_ID IS NULL
+                   OR P_OLD_STEP_NO IS NULL
+                THEN
+                    RAISE_APPLICATION_ERROR(
+                        -20715,
+                        'First renewal requires current contract dates, grade, scale, and step.'
+                    );
+                END IF;
+
+                IF TRUNC(P_CURRENT_TO_DATE) < TRUNC(P_CURRENT_FROM_DATE) THEN
+                    RAISE_APPLICATION_ERROR(-20716, 'Current contract dates are invalid.');
+                END IF;
+
+                L_CURRENT_FROM := TRUNC(P_CURRENT_FROM_DATE);
+                L_CURRENT_TO   := TRUNC(P_CURRENT_TO_DATE);
+                L_OLD_GRADE_ID := P_OLD_GRADE_ID;
+                L_OLD_SCALE_ID := P_OLD_SCALE_ID;
+                L_OLD_STEP_NO  := P_OLD_STEP_NO;
+
+                INSERT INTO HRMS.HR_EMPLOYEE_CONTRACT (
+                    EMP_ID, CONTRACT_FROM_DATE, CONTRACT_TO_DATE,
+                    GRADE_ID, SCALE_ID, STEP_NO, CONTRACT_STATUS,
+                    CREATED_BY, CREATED_DATE
+                ) VALUES (
+                    P_EMP_ID, L_CURRENT_FROM, L_CURRENT_TO,
+                    L_OLD_GRADE_ID, L_OLD_SCALE_ID, L_OLD_STEP_NO, 'ACTIVE',
+                    P_USER_ID, SYSDATE
+                );
+                L_BASELINE_YN := 'Y';
+        END;
+
+        ASSERT_DATES(L_CURRENT_TO, P_NEW_FROM_DATE, P_NEW_TO_DATE);
+        GET_SCALE_VALUES(P_NEW_GRADE_ID, P_NEW_SCALE_ID, P_NEW_STEP_NO,
+                         P_NEW_FROM_DATE, L_BASIC, L_GRADE_TEXT, L_PAY_SCALE);
+
+        BEGIN
+            SELECT E.EMP_ID,
+                   NVL(TRIM(E.NAME_BN), TRIM(E.F_NAME || ' ' || E.L_NAME)),
+                   NVL(TRIM(D.DESIGNATION_BN), D.DESIGNATION),
+                   NVL(TRIM(DP.DEPT_NAME_BN), DP.DEPT_NAME),
+                   L.NAME,
+                   E.ADDRESS,
+                   C.NAME
+              INTO L_EMP_CODE,
+                   L_EMP_NAME,
+                   L_DESIGNATION,
+                   L_DEPARTMENT,
+                   L_LOCATION,
+                   L_ADDRESS,
+                   L_COMPANY
+              FROM HRMS.EMPLOYEES E
+              LEFT JOIN HRMS.DESIGNATIONS D ON D.ID = E.DESIG_ID
+              LEFT JOIN HRMS.DEPARTMENTS DP ON DP.ID = E.DEPT_ID
+              LEFT JOIN HRMS.LOCATIONS L ON L.ID = E.LOC_ID
+              LEFT JOIN HRMS.COMPANY C ON C.ID = E.COM_ID
+             WHERE E.ID = P_EMP_ID;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                RAISE_APPLICATION_ERROR(-20717, 'Employee was not found.');
+        END;
+
+        SELECT MIN(SIGNATORY_ID)
+                   KEEP (DENSE_RANK FIRST ORDER BY DISPLAY_ORDER, SIGNATORY_ID)
+          INTO L_SIGNATORY_ID
+          FROM HRMS.HR_LETTER_SIGNATORY
+         WHERE IS_ACTIVE = 'Y';
+
+        SELECT MIN(TEMPLATE_ID)
+                   KEEP (
+                       DENSE_RANK FIRST ORDER BY
+                       CASE WHEN TEMPLATE_CODE = 'CONTRACT_RENEWAL_BN' THEN 0 ELSE 1 END,
+                       TEMPLATE_ID
+                   )
+          INTO L_TEMPLATE_ID
+          FROM HRMS.HR_LETTER_TEMPLATE
+         WHERE ACTION_TYPE = 'CONTRACT_RENEWAL'
+           AND IS_ACTIVE = 'Y';
+
+        INSERT INTO HRMS.HR_CONTRACT_RENEWAL (
+            RENEWAL_NO, EMP_ID,
+            EMP_CODE_SNAPSHOT, EMP_NAME_SNAPSHOT, DESIGNATION_SNAPSHOT,
+            DEPARTMENT_SNAPSHOT, LOCATION_SNAPSHOT, ADDRESS_SNAPSHOT,
+            COMPANY_SNAPSHOT, GRADE_SNAPSHOT, PAY_SCALE_SNAPSHOT,
+            CURRENT_FROM_DATE, CURRENT_TO_DATE, NEW_FROM_DATE, NEW_TO_DATE,
+            OLD_GRADE_ID, NEW_GRADE_ID, OLD_SCALE_ID, NEW_SCALE_ID,
+            OLD_STEP_NO, NEW_STEP_NO, SALARY_MODE,
+            SIGNATORY_ID, TEMPLATE_ID,
+            STATUS, BASELINE_CREATED_YN, VERSION_NO,
+            CREATED_BY, CREATED_DATE
+        ) VALUES (
+            NULL, P_EMP_ID,
+            L_EMP_CODE, L_EMP_NAME, L_DESIGNATION,
+            L_DEPARTMENT, L_LOCATION, L_ADDRESS,
+            L_COMPANY, L_GRADE_TEXT, L_PAY_SCALE,
+            L_CURRENT_FROM, L_CURRENT_TO,
+            TRUNC(P_NEW_FROM_DATE), TRUNC(P_NEW_TO_DATE),
+            L_OLD_GRADE_ID, P_NEW_GRADE_ID, L_OLD_SCALE_ID, P_NEW_SCALE_ID,
+            L_OLD_STEP_NO, P_NEW_STEP_NO, 'MANUAL',
+            L_SIGNATORY_ID, L_TEMPLATE_ID,
+            C_DRAFT, L_BASELINE_YN, 0,
+            P_USER_ID, SYSDATE
+        ) RETURNING RENEWAL_ID INTO P_RENEWAL_ID;
+
+        COPY_LIVE_SALARY(P_RENEWAL_ID, P_EMP_ID, L_BASIC, P_USER_ID);
+        UPDATE_TOTALS(P_RENEWAL_ID, P_USER_ID);
+
         INSERT INTO HRMS.HR_CONTRACT_RENEW_RECIPIENT (
             RENEWAL_ID, SECTION_TYPE, LETTER_RECIPIENT_ID,
             DISPLAY_ORDER, IS_ACTIVE, CREATED_BY, CREATED_DATE
@@ -548,19 +629,221 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
                ('MD_BOARD_INFO', 'ADMIN_CIVIL', 'ACCOUNTS_PAYROLL',
                 'PERSONAL_FILE', 'OFFICE_COPY');
 
-        WRITE_AUDIT(P_RENEWAL_ID, 'CREATE', NULL, C_DRAFT,
-                    'Contract renewal draft created.', P_USER_ID);
-
     EXCEPTION
         WHEN DUP_VAL_ON_INDEX THEN
-            RAISE_APPLICATION_ERROR(-20711, 'This employee already has an unfinished renewal.');
+            RAISE_APPLICATION_ERROR(-20714, 'This employee already has a renewal draft.');
         WHEN OTHERS THEN
             IF SQLCODE = -54 THEN
-                RAISE_APPLICATION_ERROR(-20716, 'The employee contract is being edited by another user.');
+                RAISE_APPLICATION_ERROR(-20718, 'The employee contract is being edited by another user.');
             ELSE
                 RAISE;
             END IF;
     END CREATE_DRAFT;
+
+    PROCEDURE CREATE_DUE_RENEWAL (
+        P_EMP_ID       IN  NUMBER,
+        P_SALARY_MODE  IN  VARCHAR2,
+        P_TERM_MONTHS  IN  NUMBER,
+        P_USER_ID      IN  NUMBER,
+        P_RENEWAL_ID   OUT NUMBER
+    ) IS
+        L_MODE          VARCHAR2(10) := UPPER(TRIM(P_SALARY_MODE));
+        L_CURRENT_FROM  DATE;
+        L_CURRENT_TO    DATE;
+        L_GRADE_ID      NUMBER;
+        L_SCALE_ID      NUMBER;
+        L_NEW_SCALE_ID  NUMBER;
+        L_OLD_STEP_NO   NUMBER;
+        L_NEW_STEP_NO   NUMBER;
+        L_NEW_FROM      DATE;
+        L_NEW_TO        DATE;
+        L_NEW_BASIC     NUMBER;
+        L_CURRENT_BASIC NUMBER;
+        L_GRADE_TEXT    VARCHAR2(100);
+        L_PAY_SCALE     VARCHAR2(300);
+    BEGIN
+        ASSERT_USER(P_USER_ID);
+
+        IF L_MODE IS NULL OR L_MODE NOT IN ('AUTO', 'MANUAL') THEN
+            RAISE_APPLICATION_ERROR(-20740, 'Salary method must be AUTO or MANUAL.');
+        END IF;
+
+        IF P_TERM_MONTHS IS NULL OR P_TERM_MONTHS <> TRUNC(P_TERM_MONTHS)
+           OR P_TERM_MONTHS < 1 OR P_TERM_MONTHS > 60
+        THEN
+            RAISE_APPLICATION_ERROR(-20741, 'Renewal term must be 1 to 60 whole months.');
+        END IF;
+
+        BEGIN
+            SELECT C.CONTRACT_FROM_DATE, C.CONTRACT_TO_DATE,
+                   NVL(C.GRADE_ID, NVL(D.GRADE, E.JOB_ID)),
+                   C.SCALE_ID, C.STEP_NO
+              INTO L_CURRENT_FROM, L_CURRENT_TO,
+                   L_GRADE_ID, L_SCALE_ID, L_OLD_STEP_NO
+              FROM HRMS.HR_EMPLOYEE_CONTRACT C
+              JOIN HRMS.EMPLOYEES E ON E.ID = C.EMP_ID
+              LEFT JOIN HRMS.DESIGNATIONS D ON D.ID = E.DESIG_ID
+             WHERE C.EMP_ID = P_EMP_ID
+               AND C.CONTRACT_STATUS = 'ACTIVE'
+             FOR UPDATE OF C.GRADE_ID NOWAIT;
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                RAISE_APPLICATION_ERROR(-20742, 'Employee has no active contract to renew.');
+        END;
+
+        IF L_GRADE_ID IS NULL THEN
+            RAISE_APPLICATION_ERROR(
+                -20743,
+                'Current grade cannot be derived. Set DESIGNATIONS.GRADE or EMPLOYEES.JOB_ID.'
+            );
+        END IF;
+
+        L_NEW_FROM := TRUNC(L_CURRENT_TO) + 1;
+        L_NEW_TO   := ADD_MONTHS(L_NEW_FROM, P_TERM_MONTHS) - 1;
+
+        /* Older contract rows may not contain scale/step. Derive them from the
+           employee grade and live Basic so Page 520 remains one-click. */
+        IF L_SCALE_ID IS NULL THEN
+            SELECT MIN(M.SCALE_ID)
+                       KEEP (
+                           DENSE_RANK FIRST ORDER BY
+                           M.REVISION_NO DESC,
+                           NVL(M.EFFECTIVE_FROM, DATE '1900-01-01') DESC,
+                           M.SCALE_ID DESC
+                       )
+              INTO L_SCALE_ID
+              FROM HRMS.PAY_SCALE_MASTER M
+             WHERE M.GRADE_ID = L_GRADE_ID
+               AND M.IS_ACTIVE = 'Y'
+               AND (M.EFFECTIVE_FROM IS NULL OR M.EFFECTIVE_FROM <= L_NEW_FROM)
+               AND (M.EFFECTIVE_TO IS NULL OR M.EFFECTIVE_TO >= L_NEW_FROM);
+
+            IF L_SCALE_ID IS NULL THEN
+                RAISE_APPLICATION_ERROR(
+                    -20746,
+                    'No active pay scale can be derived for the employee grade.'
+                );
+            END IF;
+        END IF;
+
+        IF L_OLD_STEP_NO IS NULL THEN
+            SELECT MAX(CASE
+                           WHEN LPAD(TRIM(S.HEADCODE), 3, '0') = '001'
+                                OR S.SLNO = 1
+                           THEN S.AMOUNT
+                       END)
+              INTO L_CURRENT_BASIC
+              FROM HRMS.EMP_SALARY_STRUCTURE S
+             WHERE S.EMPLOYEE_ID = P_EMP_ID
+               AND NVL(S.IS_ACTIVE, 'Y') = 'Y';
+
+            IF L_CURRENT_BASIC IS NULL THEN
+                RAISE_APPLICATION_ERROR(
+                    -20747,
+                    'Current Basic salary is required to derive the pay-scale step.'
+                );
+            END IF;
+
+            SELECT COALESCE(
+                       MAX(CASE
+                               WHEN D.BASIC_AMOUNT <= L_CURRENT_BASIC THEN D.STEP_NO
+                           END),
+                       MIN(D.STEP_NO)
+                   )
+              INTO L_OLD_STEP_NO
+              FROM HRMS.PAY_SCALE_DETAIL D
+             WHERE D.SCALE_ID = L_SCALE_ID;
+
+            IF L_OLD_STEP_NO IS NULL THEN
+                RAISE_APPLICATION_ERROR(
+                    -20748,
+                    'Pay-scale step cannot be derived from the current Basic salary.'
+                );
+            END IF;
+        END IF;
+
+        UPDATE HRMS.HR_EMPLOYEE_CONTRACT
+           SET GRADE_ID     = L_GRADE_ID,
+               SCALE_ID     = L_SCALE_ID,
+               STEP_NO      = L_OLD_STEP_NO,
+               UPDATED_BY   = P_USER_ID,
+               UPDATED_DATE = SYSDATE
+         WHERE EMP_ID = P_EMP_ID;
+
+        L_NEW_STEP_NO := L_OLD_STEP_NO;
+
+        /* Prefer the current scale while it is still effective. If its
+           revision expired, use the latest active revision for the grade. */
+        SELECT MIN(M.SCALE_ID)
+                   KEEP (
+                       DENSE_RANK FIRST ORDER BY
+                       CASE WHEN M.SCALE_ID = L_SCALE_ID THEN 0 ELSE 1 END,
+                       M.REVISION_NO DESC,
+                       NVL(M.EFFECTIVE_FROM, DATE '1900-01-01') DESC,
+                       M.SCALE_ID DESC
+                   )
+          INTO L_NEW_SCALE_ID
+          FROM HRMS.PAY_SCALE_MASTER M
+         WHERE M.GRADE_ID = L_GRADE_ID
+           AND M.IS_ACTIVE = 'Y'
+           AND (M.EFFECTIVE_FROM IS NULL OR M.EFFECTIVE_FROM <= L_NEW_FROM)
+           AND (M.EFFECTIVE_TO IS NULL OR M.EFFECTIVE_TO >= L_NEW_FROM);
+
+        IF L_NEW_SCALE_ID IS NULL THEN
+            RAISE_APPLICATION_ERROR(-20744, 'No active pay scale exists for the renewal date.');
+        END IF;
+
+        IF L_MODE = 'AUTO' THEN
+            SELECT MIN(STEP_NO)
+              INTO L_NEW_STEP_NO
+              FROM HRMS.PAY_SCALE_DETAIL
+             WHERE SCALE_ID = L_NEW_SCALE_ID
+               AND STEP_NO > L_OLD_STEP_NO;
+
+            IF L_NEW_STEP_NO IS NULL THEN
+                RAISE_APPLICATION_ERROR(
+                    -20745,
+                    'No higher pay-scale step is available. Select Manual adjustment.'
+                );
+            END IF;
+        END IF;
+
+        CREATE_DRAFT(
+            P_EMP_ID            => P_EMP_ID,
+            P_CURRENT_FROM_DATE => L_CURRENT_FROM,
+            P_CURRENT_TO_DATE   => L_CURRENT_TO,
+            P_OLD_GRADE_ID      => L_GRADE_ID,
+            P_OLD_SCALE_ID      => L_SCALE_ID,
+            P_OLD_STEP_NO       => L_OLD_STEP_NO,
+            P_NEW_FROM_DATE     => L_NEW_FROM,
+            P_NEW_TO_DATE       => L_NEW_TO,
+            P_NEW_GRADE_ID      => L_GRADE_ID,
+            P_NEW_SCALE_ID      => L_NEW_SCALE_ID,
+            P_NEW_STEP_NO       => L_NEW_STEP_NO,
+            P_USER_ID           => P_USER_ID,
+            P_RENEWAL_ID        => P_RENEWAL_ID
+        );
+
+        UPDATE HRMS.HR_CONTRACT_RENEWAL
+           SET SALARY_MODE = L_MODE,
+               UPDATED_BY = P_USER_ID,
+               UPDATED_DATE = SYSDATE
+         WHERE RENEWAL_ID = P_RENEWAL_ID;
+
+        IF L_MODE = 'AUTO' THEN
+            GET_SCALE_VALUES(L_GRADE_ID, L_NEW_SCALE_ID, L_NEW_STEP_NO,
+                             L_NEW_FROM, L_NEW_BASIC, L_GRADE_TEXT, L_PAY_SCALE);
+            APPLY_AUTO_SALARY(P_RENEWAL_ID, L_NEW_SCALE_ID, L_NEW_BASIC, P_USER_ID);
+            UPDATE_TOTALS(P_RENEWAL_ID, P_USER_ID);
+        END IF;
+    EXCEPTION
+        WHEN OTHERS THEN
+            IF SQLCODE = -54 THEN
+                RAISE_APPLICATION_ERROR(-20718, 'The employee contract is being edited by another user.');
+            ELSE
+                RAISE;
+            END IF;
+    END CREATE_DUE_RENEWAL;
 
     PROCEDURE SAVE_DRAFT (
         P_RENEWAL_ID     IN NUMBER,
@@ -576,26 +859,23 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
         P_TEMPLATE_ID    IN NUMBER,
         P_USER_ID        IN NUMBER
     ) IS
-        L_STATUS          VARCHAR2(20);
-        L_CURRENT_TO      DATE;
-        L_BASIC           NUMBER;
-        L_GRADE_TEXT      VARCHAR2(100);
-        L_PAY_SCALE       VARCHAR2(300);
-        L_OLD_BASIC       NUMBER;
-        L_NEW_BASIC       NUMBER;
-        L_OLD_GROSS       NUMBER;
-        L_NEW_GROSS       NUMBER;
+        L_STATUS       VARCHAR2(20);
+        L_SALARY_MODE  VARCHAR2(10);
+        L_CURRENT_TO   DATE;
+        L_BASIC        NUMBER;
+        L_GRADE_TEXT   VARCHAR2(100);
+        L_PAY_SCALE    VARCHAR2(300);
     BEGIN
         ASSERT_USER(P_USER_ID);
 
-        SELECT APPROVAL_STATUS, CURRENT_TO_DATE
-          INTO L_STATUS, L_CURRENT_TO
+        SELECT STATUS, CURRENT_TO_DATE, SALARY_MODE
+          INTO L_STATUS, L_CURRENT_TO, L_SALARY_MODE
           FROM HRMS.HR_CONTRACT_RENEWAL
          WHERE RENEWAL_ID = P_RENEWAL_ID
          FOR UPDATE NOWAIT;
 
         IF L_STATUS <> C_DRAFT THEN
-            RAISE_APPLICATION_ERROR(-20717, 'Only a DRAFT renewal can be edited.');
+            RAISE_APPLICATION_ERROR(-20719, 'Only a DRAFT renewal can be edited.');
         END IF;
 
         ASSERT_DATES(L_CURRENT_TO, P_NEW_FROM_DATE, P_NEW_TO_DATE);
@@ -620,27 +900,17 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
                VERSION_NO         = VERSION_NO + 1
          WHERE RENEWAL_ID = P_RENEWAL_ID;
 
-        /* A scale/step change always resets Basic to the authoritative scale
-           value. Other heads remain explicit Page 521 payroll decisions. */
         APPLY_SCALE_BASIC(P_RENEWAL_ID, L_BASIC, P_USER_ID);
-        CALCULATE_TOTALS(P_RENEWAL_ID, L_OLD_BASIC, L_NEW_BASIC,
-                         L_OLD_GROSS, L_NEW_GROSS);
-
-        UPDATE HRMS.HR_CONTRACT_RENEWAL
-           SET OLD_BASIC = L_OLD_BASIC,
-               NEW_BASIC = L_NEW_BASIC,
-               OLD_GROSS = L_OLD_GROSS,
-               NEW_GROSS = L_NEW_GROSS
-         WHERE RENEWAL_ID = P_RENEWAL_ID;
-
-        WRITE_AUDIT(P_RENEWAL_ID, 'SAVE', C_DRAFT, C_DRAFT,
-                    'Draft header and totals saved.', P_USER_ID);
+        IF L_SALARY_MODE = 'AUTO' THEN
+            APPLY_AUTO_SALARY(P_RENEWAL_ID, P_NEW_SCALE_ID, L_BASIC, P_USER_ID);
+        END IF;
+        UPDATE_TOTALS(P_RENEWAL_ID, P_USER_ID);
     EXCEPTION
         WHEN NO_DATA_FOUND THEN
-            RAISE_APPLICATION_ERROR(-20718, 'Renewal was not found.');
+            RAISE_APPLICATION_ERROR(-20720, 'Renewal was not found.');
         WHEN OTHERS THEN
             IF SQLCODE = -54 THEN
-                RAISE_APPLICATION_ERROR(-20719, 'The renewal is being edited by another user.');
+                RAISE_APPLICATION_ERROR(-20721, 'The renewal is being edited by another user.');
             ELSE
                 RAISE;
             END IF;
@@ -656,22 +926,23 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
         L_NEW_SCALE_ID NUMBER;
         L_NEW_STEP_NO  NUMBER;
         L_NEW_FROM     DATE;
+        L_SALARY_MODE  VARCHAR2(10);
         L_BASIC        NUMBER;
         L_GRADE_TEXT   VARCHAR2(100);
         L_PAY_SCALE    VARCHAR2(300);
     BEGIN
         ASSERT_USER(P_USER_ID);
 
-        SELECT APPROVAL_STATUS, EMP_ID, NEW_GRADE_ID, NEW_SCALE_ID,
-               NEW_STEP_NO, NEW_FROM_DATE
+        SELECT STATUS, EMP_ID, NEW_GRADE_ID, NEW_SCALE_ID,
+               NEW_STEP_NO, NEW_FROM_DATE, SALARY_MODE
           INTO L_STATUS, L_EMP_ID, L_NEW_GRADE_ID, L_NEW_SCALE_ID,
-               L_NEW_STEP_NO, L_NEW_FROM
+               L_NEW_STEP_NO, L_NEW_FROM, L_SALARY_MODE
           FROM HRMS.HR_CONTRACT_RENEWAL
          WHERE RENEWAL_ID = P_RENEWAL_ID
          FOR UPDATE NOWAIT;
 
         IF L_STATUS <> C_DRAFT THEN
-            RAISE_APPLICATION_ERROR(-20717, 'Only a DRAFT renewal can refresh salary.');
+            RAISE_APPLICATION_ERROR(-20719, 'Only a DRAFT renewal can refresh salary.');
         END IF;
 
         GET_SCALE_VALUES(L_NEW_GRADE_ID, L_NEW_SCALE_ID, L_NEW_STEP_NO,
@@ -680,172 +951,23 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
         DELETE FROM HRMS.HR_CONTRACT_RENEWAL_SALARY
          WHERE RENEWAL_ID = P_RENEWAL_ID;
 
-        INSERT INTO HRMS.HR_CONTRACT_RENEWAL_SALARY (
-            RENEWAL_ID, EMP_ID, SALS_ID, SLNO, HEADCODE, HEAD_NAME,
-            HEAD_TYPE, PRINT_ORDER, OLD_AMOUNT, NEW_AMOUNT,
-            INCLUDE_IN_LETTER, IS_POSTED, CREATED_BY, CREATED_DATE
-        )
-        SELECT P_RENEWAL_ID, L_EMP_ID, S.SALS_ID, S.SLNO, S.HEADCODE,
-               AH.HEAD_NAME, AH.HEAD_TYPE, AH.PRINT_ORDER,
-               NVL(S.AMOUNT, 0), NVL(S.AMOUNT, 0),
-               CASE WHEN AH.HEAD_TYPE = 'EARNING' THEN 'Y' ELSE 'N' END,
-               'N', P_USER_ID, SYSDATE
-          FROM HRMS.EMP_SALARY_STRUCTURE S
-          LEFT JOIN HRMS.ALLOWANCE_HEAD AH ON AH.HEAD_ID = S.SLNO
-         WHERE S.EMPLOYEE_ID = L_EMP_ID
-           AND NVL(S.IS_ACTIVE, 'Y') = 'Y';
-
-        IF SQL%ROWCOUNT = 0 THEN
-            RAISE_APPLICATION_ERROR(-20715, 'Employee has no active salary structure.');
+        COPY_LIVE_SALARY(P_RENEWAL_ID, L_EMP_ID, L_BASIC, P_USER_ID);
+        IF L_SALARY_MODE = 'AUTO' THEN
+            APPLY_AUTO_SALARY(P_RENEWAL_ID, L_NEW_SCALE_ID, L_BASIC, P_USER_ID);
         END IF;
-
-        APPLY_SCALE_BASIC(P_RENEWAL_ID, L_BASIC, P_USER_ID);
-        SYNC_DRAFT_TOTALS(P_RENEWAL_ID, P_USER_ID);
-        WRITE_AUDIT(P_RENEWAL_ID, 'REFRESH_SALARY', C_DRAFT, C_DRAFT,
-                    'Salary snapshot refreshed from live structure.', P_USER_ID);
+        UPDATE_TOTALS(P_RENEWAL_ID, P_USER_ID);
     END REFRESH_SALARY_SNAPSHOT;
 
-    PROCEDURE SYNC_DRAFT_TOTALS (
-        P_RENEWAL_ID IN NUMBER,
-        P_USER_ID    IN NUMBER
-    ) IS
-        L_STATUS     VARCHAR2(20);
-        L_OLD_BASIC  NUMBER;
-        L_NEW_BASIC  NUMBER;
-        L_OLD_GROSS  NUMBER;
-        L_NEW_GROSS  NUMBER;
-    BEGIN
-        ASSERT_USER(P_USER_ID);
-
-        SELECT APPROVAL_STATUS
-          INTO L_STATUS
-          FROM HRMS.HR_CONTRACT_RENEWAL
-         WHERE RENEWAL_ID = P_RENEWAL_ID
-         FOR UPDATE NOWAIT;
-
-        IF L_STATUS <> C_DRAFT THEN
-            RAISE_APPLICATION_ERROR(-20717, 'Only a DRAFT renewal can recalculate totals.');
-        END IF;
-
-        CALCULATE_TOTALS(P_RENEWAL_ID, L_OLD_BASIC, L_NEW_BASIC,
-                         L_OLD_GROSS, L_NEW_GROSS);
-
-        UPDATE HRMS.HR_CONTRACT_RENEWAL
-           SET OLD_BASIC   = L_OLD_BASIC,
-               NEW_BASIC   = L_NEW_BASIC,
-               OLD_GROSS   = L_OLD_GROSS,
-               NEW_GROSS   = L_NEW_GROSS,
-               UPDATED_BY  = P_USER_ID,
-               UPDATED_DATE = SYSDATE,
-               VERSION_NO  = VERSION_NO + 1
-         WHERE RENEWAL_ID = P_RENEWAL_ID;
-    END SYNC_DRAFT_TOTALS;
-
-    PROCEDURE SUBMIT_FOR_APPROVAL (
-        P_RENEWAL_ID IN NUMBER,
-        P_USER_ID    IN NUMBER
-    ) IS
-        L_STATUS       VARCHAR2(20);
-        L_SIGNATORY_ID NUMBER;
-        L_TEMPLATE_ID  NUMBER;
-        L_BAD_COUNT    PLS_INTEGER;
-    BEGIN
-        ASSERT_USER(P_USER_ID);
-        SYNC_DRAFT_TOTALS(P_RENEWAL_ID, P_USER_ID);
-
-        SELECT APPROVAL_STATUS, SIGNATORY_ID, TEMPLATE_ID
-          INTO L_STATUS, L_SIGNATORY_ID, L_TEMPLATE_ID
-          FROM HRMS.HR_CONTRACT_RENEWAL
-         WHERE RENEWAL_ID = P_RENEWAL_ID
-         FOR UPDATE NOWAIT;
-
-        IF L_STATUS <> C_DRAFT THEN
-            RAISE_APPLICATION_ERROR(-20720, 'Only a DRAFT renewal can be submitted.');
-        END IF;
-
-        IF L_SIGNATORY_ID IS NULL OR L_TEMPLATE_ID IS NULL THEN
-            RAISE_APPLICATION_ERROR(-20721, 'Letter signatory and template are required before submit.');
-        END IF;
-
-        SELECT COUNT(*) INTO L_BAD_COUNT
-          FROM HRMS.HR_CONTRACT_RENEWAL_SALARY
-         WHERE RENEWAL_ID = P_RENEWAL_ID
-           AND EMP_ID <> (SELECT EMP_ID FROM HRMS.HR_CONTRACT_RENEWAL
-                           WHERE RENEWAL_ID = P_RENEWAL_ID);
-
-        IF L_BAD_COUNT > 0 THEN
-            RAISE_APPLICATION_ERROR(-20722, 'A salary row belongs to another employee.');
-        END IF;
-
-        UPDATE HRMS.HR_CONTRACT_RENEWAL
-           SET APPROVAL_STATUS = C_SUBMITTED,
-               SUBMITTED_BY    = P_USER_ID,
-               SUBMITTED_DATE  = SYSDATE,
-               UPDATED_BY      = P_USER_ID,
-               UPDATED_DATE    = SYSDATE,
-               VERSION_NO      = VERSION_NO + 1
-         WHERE RENEWAL_ID = P_RENEWAL_ID;
-
-        WRITE_AUDIT(P_RENEWAL_ID, 'SUBMIT', C_DRAFT, C_SUBMITTED,
-                    'Submitted for approval.', P_USER_ID);
-    END SUBMIT_FOR_APPROVAL;
-
-    PROCEDURE RETURN_TO_DRAFT (
-        P_RENEWAL_ID IN NUMBER,
-        P_REASON     IN VARCHAR2,
-        P_USER_ID    IN NUMBER
-    ) IS
-        L_STATUS    VARCHAR2(20);
-        L_LETTER_ID NUMBER;
-    BEGIN
-        ASSERT_USER(P_USER_ID);
-        IF TRIM(P_REASON) IS NULL THEN
-            RAISE_APPLICATION_ERROR(-20723, 'Return reason is required.');
-        END IF;
-
-        SELECT APPROVAL_STATUS, LETTER_ID
-          INTO L_STATUS, L_LETTER_ID
-          FROM HRMS.HR_CONTRACT_RENEWAL
-         WHERE RENEWAL_ID = P_RENEWAL_ID
-         FOR UPDATE NOWAIT;
-
-        IF L_STATUS NOT IN (C_SUBMITTED, C_APPROVED) THEN
-            RAISE_APPLICATION_ERROR(-20724, 'Only a SUBMITTED or APPROVED renewal can return to draft.');
-        END IF;
-
-        IF L_LETTER_ID IS NOT NULL THEN
-            UPDATE HRMS.HR_EMPLOYEE_LETTER
-               SET STATUS = 'CANCELLED'
-             WHERE LETTER_ID = L_LETTER_ID
-               AND STATUS <> 'ISSUED';
-        END IF;
-
-        UPDATE HRMS.HR_CONTRACT_RENEWAL
-           SET APPROVAL_STATUS = C_DRAFT,
-               SUBMITTED_BY    = NULL,
-               SUBMITTED_DATE  = NULL,
-               APPROVED_BY     = NULL,
-               APPROVED_DATE   = NULL,
-               UPDATED_BY      = P_USER_ID,
-               UPDATED_DATE    = SYSDATE,
-               VERSION_NO      = VERSION_NO + 1
-         WHERE RENEWAL_ID = P_RENEWAL_ID;
-
-        WRITE_AUDIT(P_RENEWAL_ID, 'RETURN', L_STATUS, C_DRAFT,
-                    P_REASON, P_USER_ID);
-    END RETURN_TO_DRAFT;
-
-    PROCEDURE APPROVE_RENEWAL (
+    PROCEDURE GENERATE_LETTER (
         P_RENEWAL_ID IN  NUMBER,
+        P_ACTION_ID  IN  NUMBER,
         P_USER_ID    IN  NUMBER,
         P_LETTER_ID  OUT NUMBER
     ) IS
-        L_STATUS            VARCHAR2(20);
         L_EMP_ID            NUMBER;
         L_RENEWAL_NO        VARCHAR2(30);
         L_TEMPLATE_ID       NUMBER;
         L_SIGNATORY_ID      NUMBER;
-        L_OLD_LETTER_ID     NUMBER;
         L_EMP_NAME          VARCHAR2(200);
         L_EMP_CODE          VARCHAR2(30);
         L_DESIGNATION       VARCHAR2(150);
@@ -863,49 +985,42 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
         L_TERM              VARCHAR2(200);
         L_SPECIAL_TEXT      VARCHAR2(32767);
         L_MONTHS            NUMBER;
-        L_ACTIVE_COUNT      PLS_INTEGER;
+        L_BAD_COUNT         PLS_INTEGER;
     BEGIN
-        ASSERT_USER(P_USER_ID);
-        P_LETTER_ID := NULL;
-
-        SELECT APPROVAL_STATUS, EMP_ID, RENEWAL_NO, TEMPLATE_ID,
-               SIGNATORY_ID, LETTER_ID,
+        SELECT EMP_ID, RENEWAL_NO, TEMPLATE_ID, SIGNATORY_ID,
                EMP_NAME_SNAPSHOT, EMP_CODE_SNAPSHOT,
                DESIGNATION_SNAPSHOT, DEPARTMENT_SNAPSHOT,
                COMPANY_SNAPSHOT, GRADE_SNAPSHOT, PAY_SCALE_SNAPSHOT,
                NEW_FROM_DATE, NEW_TO_DATE, SPECIAL_TERMS
-          INTO L_STATUS, L_EMP_ID, L_RENEWAL_NO, L_TEMPLATE_ID,
-               L_SIGNATORY_ID, L_OLD_LETTER_ID,
+          INTO L_EMP_ID, L_RENEWAL_NO, L_TEMPLATE_ID, L_SIGNATORY_ID,
                L_EMP_NAME, L_EMP_CODE,
                L_DESIGNATION, L_DEPARTMENT,
                L_COMPANY, L_GRADE, L_PAY_SCALE,
                L_NEW_FROM, L_NEW_TO, L_SPECIAL_TERMS
           FROM HRMS.HR_CONTRACT_RENEWAL
-         WHERE RENEWAL_ID = P_RENEWAL_ID
-         FOR UPDATE NOWAIT;
+         WHERE RENEWAL_ID = P_RENEWAL_ID;
 
-        IF L_STATUS <> C_SUBMITTED THEN
-            RAISE_APPLICATION_ERROR(-20725, 'Only a SUBMITTED renewal can be approved.');
+        IF L_SIGNATORY_ID IS NULL OR L_TEMPLATE_ID IS NULL THEN
+            RAISE_APPLICATION_ERROR(-20722, 'Letter signatory and template are required.');
         END IF;
 
-        SELECT COUNT(*) INTO L_ACTIVE_COUNT
+        SELECT COUNT(*) INTO L_BAD_COUNT
           FROM HRMS.HR_LETTER_SIGNATORY
          WHERE SIGNATORY_ID = L_SIGNATORY_ID
            AND IS_ACTIVE = 'Y';
-        IF L_ACTIVE_COUNT <> 1 THEN
-            RAISE_APPLICATION_ERROR(-20726, 'The selected letter signatory is not active.');
+        IF L_BAD_COUNT <> 1 THEN
+            RAISE_APPLICATION_ERROR(-20723, 'The selected letter signatory is not active.');
         END IF;
 
-        SELECT COUNT(*) INTO L_ACTIVE_COUNT
+        SELECT COUNT(*) INTO L_BAD_COUNT
           FROM HRMS.HR_CONTRACT_RENEW_RECIPIENT X
           JOIN HRMS.HR_LETTER_RECIPIENT M
             ON M.LETTER_RECIPIENT_ID = X.LETTER_RECIPIENT_ID
          WHERE X.RENEWAL_ID = P_RENEWAL_ID
            AND X.IS_ACTIVE = 'Y'
            AND M.IS_ACTIVE <> 'Y';
-
-        IF L_ACTIVE_COUNT > 0 THEN
-            RAISE_APPLICATION_ERROR(-20740, 'One or more selected letter recipients are inactive.');
+        IF L_BAD_COUNT > 0 THEN
+            RAISE_APPLICATION_ERROR(-20724, 'One or more selected letter recipients are inactive.');
         END IF;
 
         SELECT SUBJECT_TEMPLATE, BODY_TEMPLATE
@@ -929,7 +1044,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
         END;
 
         L_SUBJECT := REPLACE(L_SUBJECT_TEMPLATE, '#EMP_NAME#', L_EMP_NAME);
-
         L_BODY := L_BODY_TEMPLATE;
         L_BODY := REPLACE(L_BODY, '#EMP_NAME#', HTML(L_EMP_NAME));
         L_BODY := REPLACE(L_BODY, '#EMP_CODE#', HTML(L_EMP_CODE));
@@ -947,92 +1061,55 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
         );
         L_BODY := REPLACE(L_BODY, '#SPECIAL_TERMS#', NVL(L_SPECIAL_TEXT, ''));
 
-        IF L_OLD_LETTER_ID IS NULL THEN
-            INSERT INTO HRMS.HR_EMPLOYEE_LETTER (
-                EMP_ID, ACTION_ID, CONTRACT_RENEWAL_ID, TEMPLATE_ID,
-                LETTER_NO, LETTER_DATE, SUBJECT_TEXT, BODY_HTML,
-                STATUS, GENERATED_BY, GENERATED_DATE,
-                APPROVED_BY, APPROVED_DATE
-            ) VALUES (
-                L_EMP_ID, NULL, P_RENEWAL_ID, L_TEMPLATE_ID,
-                L_RENEWAL_NO, SYSDATE, L_SUBJECT, L_BODY,
-                'APPROVED', P_USER_ID, SYSDATE,
-                P_USER_ID, SYSDATE
-            ) RETURNING LETTER_ID INTO P_LETTER_ID;
-        ELSE
-            UPDATE HRMS.HR_EMPLOYEE_LETTER
-               SET TEMPLATE_ID         = L_TEMPLATE_ID,
-                   LETTER_DATE         = SYSDATE,
-                   SUBJECT_TEXT        = L_SUBJECT,
-                   BODY_HTML           = L_BODY,
-                   STATUS              = 'APPROVED',
-                   GENERATED_BY        = P_USER_ID,
-                   GENERATED_DATE      = SYSDATE,
-                   APPROVED_BY         = P_USER_ID,
-                   APPROVED_DATE       = SYSDATE,
-                   ISSUED_BY           = NULL,
-                   ISSUED_DATE         = NULL
-             WHERE LETTER_ID = L_OLD_LETTER_ID;
-            P_LETTER_ID := L_OLD_LETTER_ID;
-        END IF;
-
-        UPDATE HRMS.HR_CONTRACT_RENEWAL
-           SET LETTER_ID        = P_LETTER_ID,
-               APPROVAL_STATUS = C_APPROVED,
-               APPROVED_BY     = P_USER_ID,
-               APPROVED_DATE   = SYSDATE,
-               UPDATED_BY      = P_USER_ID,
-               UPDATED_DATE    = SYSDATE,
-               VERSION_NO      = VERSION_NO + 1
-         WHERE RENEWAL_ID = P_RENEWAL_ID;
-
-        WRITE_AUDIT(P_RENEWAL_ID, 'APPROVE', C_SUBMITTED, C_APPROVED,
-                    'Approved and generated renewal letter.', P_USER_ID);
+        INSERT INTO HRMS.HR_EMPLOYEE_LETTER (
+            EMP_ID, ACTION_ID, CONTRACT_RENEWAL_ID, TEMPLATE_ID,
+            LETTER_NO, LETTER_DATE, SUBJECT_TEXT, BODY_HTML,
+            STATUS, GENERATED_BY, GENERATED_DATE,
+            APPROVED_BY, APPROVED_DATE, ISSUED_BY, ISSUED_DATE
+        ) VALUES (
+            L_EMP_ID, P_ACTION_ID, P_RENEWAL_ID, L_TEMPLATE_ID,
+            L_RENEWAL_NO, SYSDATE, L_SUBJECT, L_BODY,
+            'ISSUED', P_USER_ID, SYSDATE,
+            P_USER_ID, SYSDATE, P_USER_ID, SYSDATE
+        ) RETURNING LETTER_ID INTO P_LETTER_ID;
     EXCEPTION
         WHEN NO_DATA_FOUND THEN
-            RAISE_APPLICATION_ERROR(-20727, 'Renewal, template, or configuration was not found.');
-        WHEN OTHERS THEN
-            IF SQLCODE = -54 THEN
-                RAISE_APPLICATION_ERROR(-20719, 'The renewal is being processed by another user.');
-            ELSE
-                RAISE;
-            END IF;
-    END APPROVE_RENEWAL;
+            RAISE_APPLICATION_ERROR(-20725, 'Letter template or renewal configuration was not found.');
+    END GENERATE_LETTER;
 
     PROCEDURE FINAL_SUBMIT (
         P_RENEWAL_ID IN  NUMBER,
         P_USER_ID    IN  NUMBER,
-        P_ACTION_ID  OUT NUMBER
+        P_ACTION_ID  OUT NUMBER,
+        P_LETTER_ID  OUT NUMBER
     ) IS
-        L_STATUS        VARCHAR2(20);
-        L_EMP_ID        NUMBER;
-        L_RENEWAL_NO    VARCHAR2(30);
-        L_LETTER_ID     NUMBER;
-        L_CURRENT_FROM  DATE;
-        L_CURRENT_TO    DATE;
-        L_NEW_FROM      DATE;
-        L_NEW_TO        DATE;
-        L_OLD_GRADE_ID  NUMBER;
-        L_NEW_GRADE_ID  NUMBER;
-        L_OLD_SCALE_ID  NUMBER;
-        L_NEW_SCALE_ID  NUMBER;
-        L_OLD_STEP_NO   NUMBER;
-        L_NEW_STEP_NO   NUMBER;
-        L_OLD_BASIC     NUMBER;
-        L_NEW_BASIC     NUMBER;
-        L_OLD_GROSS     NUMBER;
-        L_NEW_GROSS     NUMBER;
-        L_REASON        VARCHAR2(1000);
-        L_REMARKS       VARCHAR2(1000);
-        L_MASTER_FROM   DATE;
-        L_MASTER_TO     DATE;
-        L_MASTER_GRADE  NUMBER;
-        L_MASTER_SCALE  NUMBER;
-        L_MASTER_STEP   NUMBER;
-        L_BAD_COUNT     PLS_INTEGER;
-        L_SALS_ID       NUMBER;
-        L_GRADE_VALUE   VARCHAR2(100);
-        L_AFTER_GROSS   NUMBER;
+        L_STATUS         VARCHAR2(20);
+        L_EMP_ID         NUMBER;
+        L_CURRENT_FROM   DATE;
+        L_CURRENT_TO     DATE;
+        L_NEW_FROM       DATE;
+        L_NEW_TO         DATE;
+        L_OLD_GRADE_ID   NUMBER;
+        L_NEW_GRADE_ID   NUMBER;
+        L_OLD_SCALE_ID   NUMBER;
+        L_NEW_SCALE_ID   NUMBER;
+        L_OLD_STEP_NO    NUMBER;
+        L_NEW_STEP_NO    NUMBER;
+        L_OLD_BASIC      NUMBER;
+        L_NEW_BASIC      NUMBER;
+        L_OLD_GROSS      NUMBER;
+        L_NEW_GROSS      NUMBER;
+        L_REASON         VARCHAR2(1000);
+        L_REMARKS        VARCHAR2(1000);
+        L_MASTER_FROM    DATE;
+        L_MASTER_TO      DATE;
+        L_MASTER_GRADE   NUMBER;
+        L_MASTER_SCALE   NUMBER;
+        L_MASTER_STEP    NUMBER;
+        L_BAD_COUNT      PLS_INTEGER;
+        L_SALS_ID        NUMBER;
+        L_GRADE_VALUE    VARCHAR2(100);
+        L_AFTER_GROSS    NUMBER;
         L_CALC_OLD_BASIC NUMBER;
         L_CALC_NEW_BASIC NUMBER;
         L_CALC_OLD_GROSS NUMBER;
@@ -1040,15 +1117,16 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
     BEGIN
         ASSERT_USER(P_USER_ID);
         P_ACTION_ID := NULL;
+        P_LETTER_ID := NULL;
         SAVEPOINT BEFORE_CONTRACT_POST;
 
-        SELECT APPROVAL_STATUS, EMP_ID, RENEWAL_NO, LETTER_ID,
+        SELECT STATUS, EMP_ID,
                CURRENT_FROM_DATE, CURRENT_TO_DATE, NEW_FROM_DATE, NEW_TO_DATE,
                OLD_GRADE_ID, NEW_GRADE_ID, OLD_SCALE_ID, NEW_SCALE_ID,
                OLD_STEP_NO, NEW_STEP_NO,
                OLD_BASIC, NEW_BASIC, OLD_GROSS, NEW_GROSS,
                REASON, REMARKS
-          INTO L_STATUS, L_EMP_ID, L_RENEWAL_NO, L_LETTER_ID,
+          INTO L_STATUS, L_EMP_ID,
                L_CURRENT_FROM, L_CURRENT_TO, L_NEW_FROM, L_NEW_TO,
                L_OLD_GRADE_ID, L_NEW_GRADE_ID, L_OLD_SCALE_ID, L_NEW_SCALE_ID,
                L_OLD_STEP_NO, L_NEW_STEP_NO,
@@ -1058,20 +1136,16 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
          WHERE RENEWAL_ID = P_RENEWAL_ID
          FOR UPDATE NOWAIT;
 
-        IF L_STATUS <> C_APPROVED THEN
-            RAISE_APPLICATION_ERROR(-20728, 'Only an APPROVED renewal can be finally submitted.');
+        IF L_STATUS <> C_DRAFT THEN
+            RAISE_APPLICATION_ERROR(-20726, 'Only a DRAFT renewal can be finally submitted.');
         END IF;
 
         IF TRUNC(L_NEW_FROM) > TRUNC(SYSDATE) THEN
             RAISE_APPLICATION_ERROR(
-                -20729,
-                'Future-effective renewal cannot update current salary. Final submit on or after '
+                -20727,
+                'Final submit is allowed on or after '
                 || TO_CHAR(L_NEW_FROM, 'DD-Mon-YYYY') || '.'
             );
-        END IF;
-
-        IF L_LETTER_ID IS NULL THEN
-            RAISE_APPLICATION_ERROR(-20730, 'Approved renewal letter is missing.');
         END IF;
 
         CALCULATE_TOTALS(P_RENEWAL_ID,
@@ -1083,10 +1157,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
            OR ABS(NVL(L_CALC_OLD_GROSS, 0) - NVL(L_OLD_GROSS, 0)) > 0.005
            OR ABS(NVL(L_CALC_NEW_GROSS, 0) - NVL(L_NEW_GROSS, 0)) > 0.005
         THEN
-            RAISE_APPLICATION_ERROR(
-                -20741,
-                'Approved salary details no longer match the renewal totals.'
-            );
+            RAISE_APPLICATION_ERROR(-20728, 'Salary details do not match the renewal totals.');
         END IF;
 
         SELECT CONTRACT_FROM_DATE, CONTRACT_TO_DATE, GRADE_ID, SCALE_ID, STEP_NO
@@ -1103,12 +1174,11 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
            OR NVL(L_MASTER_STEP, -1) <> NVL(L_OLD_STEP_NO, -1)
         THEN
             RAISE_APPLICATION_ERROR(
-                -20731,
-                'Current employee contract changed after this renewal draft. Return it to draft and recreate it.'
+                -20729,
+                'Current contract changed after this draft. Delete it and create a new draft.'
             );
         END IF;
 
-        /* Lock every current salary row before stale-snapshot validation. */
         FOR X IN (
             SELECT SALS_ID
               FROM HRMS.EMP_SALARY_STRUCTURE
@@ -1119,9 +1189,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
             NULL;
         END LOOP;
 
-        /* Every active live head must still exist with the amount captured in
-           the draft. This prevents final submit from overwriting later payroll
-           changes. */
         SELECT COUNT(*) INTO L_BAD_COUNT
           FROM HRMS.EMP_SALARY_STRUCTURE S
          WHERE S.EMPLOYEE_ID = L_EMP_ID
@@ -1138,8 +1205,8 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
 
         IF L_BAD_COUNT > 0 THEN
             RAISE_APPLICATION_ERROR(
-                -20732,
-                'Live salary changed after the renewal draft. Return to draft and refresh the salary snapshot.'
+                -20730,
+                'Live salary changed after this draft. Use Refresh Salary and review again.'
             );
         END IF;
 
@@ -1149,7 +1216,8 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
            AND D.EMP_ID = L_EMP_ID
            AND D.SALS_ID IS NOT NULL
            AND NOT EXISTS (
-               SELECT 1 FROM HRMS.EMP_SALARY_STRUCTURE S
+               SELECT 1
+                 FROM HRMS.EMP_SALARY_STRUCTURE S
                 WHERE S.SALS_ID = D.SALS_ID
                   AND S.EMPLOYEE_ID = L_EMP_ID
                   AND NVL(S.IS_ACTIVE, 'Y') = 'Y'
@@ -1157,7 +1225,10 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
            );
 
         IF L_BAD_COUNT > 0 THEN
-            RAISE_APPLICATION_ERROR(-20732, 'A captured live salary row is stale or inactive.');
+            RAISE_APPLICATION_ERROR(
+                -20730,
+                'A captured salary row changed or became inactive. Use Refresh Salary.'
+            );
         END IF;
 
         INSERT INTO HRMS.HR_EMPLOYEE_ACTION (
@@ -1200,8 +1271,8 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
                      FOR UPDATE NOWAIT;
 
                     RAISE_APPLICATION_ERROR(
-                        -20733,
-                        'A new salary detail conflicts with an existing employee salary head.'
+                        -20731,
+                        'A new salary detail conflicts with an existing salary head.'
                     );
                 EXCEPTION
                     WHEN NO_DATA_FOUND THEN
@@ -1224,12 +1295,12 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
                             THEN NVL(S.AMOUNT, 0) ELSE 0 END), 0)
           INTO L_AFTER_GROSS
           FROM HRMS.EMP_SALARY_STRUCTURE S
-          LEFT JOIN HRMS.ALLOWANCE_HEAD AH ON AH.HEAD_ID = S.SLNO
+          JOIN HRMS.ALLOWANCE_HEAD AH ON AH.HEAD_ID = S.SLNO
          WHERE S.EMPLOYEE_ID = L_EMP_ID
            AND NVL(S.IS_ACTIVE, 'Y') = 'Y';
 
         IF ABS(NVL(L_AFTER_GROSS, 0) - NVL(L_NEW_GROSS, 0)) > 0.005 THEN
-            RAISE_APPLICATION_ERROR(-20734, 'Posted gross does not match the approved renewal gross.');
+            RAISE_APPLICATION_ERROR(-20732, 'Posted gross does not match the renewal gross.');
         END IF;
 
         SELECT NVL(GRADE_CODE, NVL(TO_CHAR(GRADE_ORDER), GRADE_NAME))
@@ -1250,10 +1321,12 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
          WHERE EMP_ID = L_EMP_ID;
 
         UPDATE HRMS.EMPLOYEES
-           SET GRADE    = L_GRADE_VALUE,
-               UPD_BY  = P_USER_ID,
+           SET GRADE     = L_GRADE_VALUE,
+               UPD_BY   = P_USER_ID,
                UPD_DATE = SYSDATE
          WHERE ID = L_EMP_ID;
+
+        GENERATE_LETTER(P_RENEWAL_ID, P_ACTION_ID, P_USER_ID, P_LETTER_ID);
 
         UPDATE HRMS.HR_CONTRACT_RENEWAL_SALARY
            SET IS_POSTED  = 'Y',
@@ -1261,86 +1334,59 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
                POSTED_DATE = SYSDATE
          WHERE RENEWAL_ID = P_RENEWAL_ID;
 
-        UPDATE HRMS.HR_EMPLOYEE_LETTER
-           SET ACTION_ID  = P_ACTION_ID,
-               STATUS     = 'ISSUED',
-               ISSUED_BY  = P_USER_ID,
-               ISSUED_DATE = SYSDATE
-         WHERE LETTER_ID = L_LETTER_ID
-           AND CONTRACT_RENEWAL_ID = P_RENEWAL_ID
-           AND STATUS = 'APPROVED';
-
-        IF SQL%ROWCOUNT <> 1 THEN
-            RAISE_APPLICATION_ERROR(-20735, 'Approved renewal letter could not be issued.');
-        END IF;
-
         UPDATE HRMS.HR_CONTRACT_RENEWAL
-           SET ACTION_ID        = P_ACTION_ID,
-               APPROVAL_STATUS = C_POSTED,
-               POSTED_BY       = P_USER_ID,
-               POSTED_DATE     = SYSDATE,
-               UPDATED_BY      = P_USER_ID,
-               UPDATED_DATE    = SYSDATE,
-               VERSION_NO      = VERSION_NO + 1
+           SET ACTION_ID    = P_ACTION_ID,
+               LETTER_ID    = P_LETTER_ID,
+               STATUS       = C_POSTED,
+               POSTED_BY    = P_USER_ID,
+               POSTED_DATE  = SYSDATE,
+               UPDATED_BY   = P_USER_ID,
+               UPDATED_DATE = SYSDATE,
+               VERSION_NO   = VERSION_NO + 1
          WHERE RENEWAL_ID = P_RENEWAL_ID;
-
-        WRITE_AUDIT(P_RENEWAL_ID, 'FINAL_SUBMIT', C_APPROVED, C_POSTED,
-                    'Salary structure and current contract updated atomically.', P_USER_ID);
 
     EXCEPTION
         WHEN OTHERS THEN
             ROLLBACK TO BEFORE_CONTRACT_POST;
             IF SQLCODE = -54 THEN
-                RAISE_APPLICATION_ERROR(-20736, 'Employee or renewal is being processed by another user.');
+                RAISE_APPLICATION_ERROR(-20733, 'Employee or renewal is being processed by another user.');
             ELSE
                 RAISE;
             END IF;
     END FINAL_SUBMIT;
 
-    PROCEDURE CANCEL_RENEWAL (
+    PROCEDURE DELETE_DRAFT (
         P_RENEWAL_ID IN NUMBER,
-        P_REASON     IN VARCHAR2,
         P_USER_ID    IN NUMBER
     ) IS
-        L_STATUS    VARCHAR2(20);
-        L_LETTER_ID NUMBER;
+        L_STATUS      VARCHAR2(20);
+        L_EMP_ID      NUMBER;
+        L_BASELINE_YN VARCHAR2(1);
     BEGIN
         ASSERT_USER(P_USER_ID);
-        IF TRIM(P_REASON) IS NULL THEN
-            RAISE_APPLICATION_ERROR(-20737, 'Cancellation reason is required.');
-        END IF;
 
-        SELECT APPROVAL_STATUS, LETTER_ID
-          INTO L_STATUS, L_LETTER_ID
+        SELECT STATUS, EMP_ID, BASELINE_CREATED_YN
+          INTO L_STATUS, L_EMP_ID, L_BASELINE_YN
           FROM HRMS.HR_CONTRACT_RENEWAL
          WHERE RENEWAL_ID = P_RENEWAL_ID
          FOR UPDATE NOWAIT;
 
-        IF L_STATUS NOT IN (C_DRAFT, C_SUBMITTED, C_APPROVED) THEN
-            RAISE_APPLICATION_ERROR(-20738, 'Posted or already cancelled renewal cannot be cancelled.');
+        IF L_STATUS <> C_DRAFT THEN
+            RAISE_APPLICATION_ERROR(-20734, 'Only a DRAFT renewal can be deleted.');
         END IF;
 
-        IF L_LETTER_ID IS NOT NULL THEN
-            UPDATE HRMS.HR_EMPLOYEE_LETTER
-               SET STATUS = 'CANCELLED'
-             WHERE LETTER_ID = L_LETTER_ID
-               AND STATUS <> 'ISSUED';
-        END IF;
-
-        UPDATE HRMS.HR_CONTRACT_RENEWAL
-           SET APPROVAL_STATUS = C_CANCELLED,
-               CANCELLED_BY    = P_USER_ID,
-               CANCELLED_DATE  = SYSDATE,
-               REMARKS         = SUBSTR(NVL(REMARKS || CHR(10), '')
-                                        || 'Cancelled: ' || P_REASON, 1, 1000),
-               UPDATED_BY      = P_USER_ID,
-               UPDATED_DATE    = SYSDATE,
-               VERSION_NO      = VERSION_NO + 1
+        DELETE FROM HRMS.HR_CONTRACT_RENEWAL
          WHERE RENEWAL_ID = P_RENEWAL_ID;
 
-        WRITE_AUDIT(P_RENEWAL_ID, 'CANCEL', L_STATUS, C_CANCELLED,
-                    P_REASON, P_USER_ID);
-    END CANCEL_RENEWAL;
+        IF L_BASELINE_YN = 'Y' THEN
+            DELETE FROM HRMS.HR_EMPLOYEE_CONTRACT
+             WHERE EMP_ID = L_EMP_ID
+               AND LATEST_RENEWAL_ID IS NULL;
+        END IF;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RAISE_APPLICATION_ERROR(-20720, 'Renewal was not found.');
+    END DELETE_DRAFT;
 
 END PKG_HR_CONTRACT_RENEWAL;
 /

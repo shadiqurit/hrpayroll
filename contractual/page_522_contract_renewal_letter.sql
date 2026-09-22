@@ -21,7 +21,6 @@ DECLARE
     L_LETTER_NO        VARCHAR2(30);
     L_LETTER_DATE      DATE;
     L_LETTER_STATUS    VARCHAR2(20);
-    L_WORKFLOW_STATUS  VARCHAR2(20);
     L_RENEWAL_NO       VARCHAR2(30);
     L_EMP_CODE         VARCHAR2(30);
     L_EMP_NAME         VARCHAR2(200);
@@ -132,7 +131,6 @@ BEGIN
            L.LETTER_NO,
            L.LETTER_DATE,
            L.STATUS,
-           R.APPROVAL_STATUS,
            R.RENEWAL_NO,
            R.EMP_CODE_SNAPSHOT,
            R.EMP_NAME_SNAPSHOT,
@@ -150,7 +148,6 @@ BEGIN
            L_LETTER_NO,
            L_LETTER_DATE,
            L_LETTER_STATUS,
-           L_WORKFLOW_STATUS,
            L_RENEWAL_NO,
            L_EMP_CODE,
            L_EMP_NAME,
@@ -173,8 +170,8 @@ BEGIN
         ON S.SIGNATORY_ID = R.SIGNATORY_ID
      WHERE R.RENEWAL_ID = L_RENEWAL_ID
        AND E.COM_ID = :P522_COM_ID
-       AND R.APPROVAL_STATUS IN ('APPROVED', 'POSTED')
-       AND L.STATUS IN ('APPROVED', 'ISSUED');
+       AND R.STATUS = 'POSTED'
+       AND L.STATUS = 'ISSUED';
 
     SELECT COUNT(*)
       INTO L_TO_COUNT
@@ -210,10 +207,6 @@ BEGIN
   position: relative; width: 210mm; min-height: 297mm; margin: 0 auto;
   padding: 26mm 15mm 12mm; background: #fff; border: 1px solid #d7dce1;
   box-shadow: 0 3px 16px rgba(0,0,0,.12); font-size: 13.4px; line-height: 1.55;
-}
-.pending-watermark {
-  position: absolute; top: 8mm; right: 15mm; padding: 4px 9px;
-  border: 1px solid #b36b00; color: #8d5500; font-size: 10px; font-weight: 700;
 }
 .department-line { font-weight: 700; font-size: 15px; margin-bottom: 3px; }
 .letter-meta { display: flex; justify-content: space-between; gap: 20px; margin: 3px 0 13px; }
@@ -273,10 +266,6 @@ BEGIN
           || '<span class="fa fa-print" aria-hidden="true"></span> '
           || 'চুক্তি নবায়ন পত্র প্রিন্ট করুন</button></div>');
     HTP.P('<article class="contract-page">');
-
-    IF L_WORKFLOW_STATUS = 'APPROVED' THEN
-        HTP.P('<div class="pending-watermark">অনুমোদিত - চূড়ান্ত বেতন পোস্টিং অপেক্ষমাণ</div>');
-    END IF;
 
     HTP.P('<div class="department-line">হিউম্যান রিসোর্স ডিপার্টমেন্ট</div>');
     HTP.P('<div class="letter-meta"><div><strong>সূত্র নং :</strong> '
@@ -406,7 +395,7 @@ EXCEPTION
         HTP.P('<div class="t-Alert t-Alert--warning t-Alert--defaultIcons">'
               || '<div class="t-Alert-wrap"><div class="t-Alert-content">'
               || '<div class="t-Alert-header"><h2 class="t-Alert-title">'
-              || 'No approved contract renewal letter was found.'
+              || 'No final contract renewal letter was found.'
               || '</h2></div></div></div></div>');
     WHEN VALUE_ERROR THEN
         HTP.P('<div class="t-Alert t-Alert--danger t-Alert--defaultIcons">Invalid renewal ID.</div>');

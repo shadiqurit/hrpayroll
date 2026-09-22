@@ -82,7 +82,8 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         l_status             hr_employee_promotion.approval_status%TYPE;
 
         l_emp_code           employees.emp_id%TYPE;
-        l_emp_name           VARCHAR2(200);
+        l_emp_name           VARCHAR2(300);
+        l_emp_name_bn        employees.name_bn%TYPE;
         l_current_emp_type   employees.emp_type%TYPE;
         l_current_job_id     employees.job_id%TYPE;
         l_current_desig_id   employees.desig_id%TYPE;
@@ -107,9 +108,12 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         l_subject            hr_employee_letter.subject_text%TYPE;
         l_body               CLOB;
         l_letter_no          hr_employee_letter.letter_no%TYPE;
-        l_old_designation    designations.designation%TYPE;
-        l_new_designation    designations.designation%TYPE;
-        l_department         departments.dept_name%TYPE;
+        l_old_designation    VARCHAR2(300);
+        l_old_designation_bn designations.designation_bn%TYPE;
+        l_new_designation    VARCHAR2(300);
+        l_new_designation_bn designations.designation_bn%TYPE;
+        l_department         VARCHAR2(300);
+        l_department_bn      departments.dept_name_bn%TYPE;
         l_location           locations.name%TYPE;
         l_company_name       company.name%TYPE;
         l_company_name_bn    VARCHAR2(300);
@@ -268,6 +272,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         BEGIN
             SELECT emp_id,
                    TRIM(f_name || ' ' || l_name),
+                   name_bn,
                    emp_type,
                    job_id,
                    desig_id,
@@ -276,6 +281,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
                    com_id
               INTO l_emp_code,
                    l_emp_name,
+                   l_emp_name_bn,
                    l_current_emp_type,
                    l_current_job_id,
                    l_current_desig_id,
@@ -687,8 +693,10 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
          WHERE promotion_id = p_promotion_id;
 
         BEGIN
-            SELECT designation
-              INTO l_old_designation
+            SELECT designation,
+                   designation_bn
+              INTO l_old_designation,
+                   l_old_designation_bn
               FROM designations
              WHERE id = l_current_desig_id;
         EXCEPTION
@@ -697,8 +705,10 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         END;
 
         BEGIN
-            SELECT designation
-              INTO l_new_designation
+            SELECT designation,
+                   designation_bn
+              INTO l_new_designation,
+                   l_new_designation_bn
               FROM designations
              WHERE id = NVL(l_new_desig_id, l_current_desig_id);
         EXCEPTION
@@ -707,8 +717,10 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
         END;
 
         BEGIN
-            SELECT dept_name
-              INTO l_department
+            SELECT dept_name,
+                   dept_name_bn
+              INTO l_department,
+                   l_department_bn
               FROM departments
              WHERE id = NVL(l_new_dept_id, l_current_dept_id);
         EXCEPTION
@@ -773,6 +785,10 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_hr_promotion AS
             l_default_template := 'PROMOTION_EN';
         ELSIF l_grade_order BETWEEN 15 AND 20 THEN
             l_default_template := 'PROMOTION_BN';
+            l_emp_name := NVL(TRIM(l_emp_name_bn), l_emp_name);
+            l_old_designation := NVL(TRIM(l_old_designation_bn), l_old_designation);
+            l_new_designation := NVL(TRIM(l_new_designation_bn), l_new_designation);
+            l_department := NVL(TRIM(l_department_bn), l_department);
         ELSE
             RAISE_APPLICATION_ERROR(
                 -20624,

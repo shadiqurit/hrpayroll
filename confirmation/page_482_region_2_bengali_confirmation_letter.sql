@@ -114,10 +114,10 @@ BEGIN
        AND c.grade_order BETWEEN 15 AND 20;
 
     SELECT NVL(v.empcode, '-'),
-           NVL(v.fullname, '-'),
+           NVL(TRIM(e.name_bn), NVL(v.fullname, '-')),
            NVL(v.grade, '-'),
-           NVL(v.designation, '-'),
-           NVL(v.department, '-'),
+           NVL(TRIM(d.designation_bn), NVL(d.designation, NVL(v.designation, '-'))),
+           NVL(TRIM(dp.dept_name_bn), NVL(dp.dept_name, NVL(v.department, '-'))),
            NVL(v.locationname, '-'),
            NVL(v.loccode, '-')
       INTO v_emp_code,
@@ -128,6 +128,9 @@ BEGIN
            v_location,
            v_location_code
       FROM v_emp v
+      JOIN employees e ON e.id = v.emp_id
+      LEFT JOIN designations d ON d.id = e.desig_id
+      LEFT JOIN departments dp ON dp.id = e.dept_id
      WHERE v.emp_id = v_emp_id;
 
     BEGIN

@@ -32,10 +32,10 @@ DECLARE
     l_promotion_no     hr_employee_promotion.promotion_no%TYPE;
     l_effective_date   hr_employee_promotion.effective_date%TYPE;
     l_emp_code         employees.emp_id%TYPE;
-    l_emp_name         VARCHAR2(200);
-    l_old_designation  designations.designation%TYPE;
-    l_new_designation  designations.designation%TYPE;
-    l_department       departments.dept_name%TYPE;
+    l_emp_name         VARCHAR2(300);
+    l_old_designation  VARCHAR2(300);
+    l_new_designation  VARCHAR2(300);
+    l_department       VARCHAR2(300);
     l_location         locations.name%TYPE;
     l_grade_order      job_grades.grade_order%TYPE;
     l_company_name     company.name%TYPE;
@@ -211,10 +211,29 @@ BEGIN
                    p.promotion_no,
                    p.effective_date,
                    e.emp_id AS emp_code,
-                   TRIM(e.f_name || ' ' || e.l_name) AS emp_name,
-                   NVL(od.designation, nd.designation) AS old_designation,
-                   nd.designation AS new_designation,
-                   dp.dept_name AS department,
+                   CASE
+                       WHEN g.grade_order BETWEEN 15 AND 20
+                       THEN NVL(TRIM(e.name_bn), TRIM(e.f_name || ' ' || e.l_name))
+                       ELSE TRIM(e.f_name || ' ' || e.l_name)
+                   END AS emp_name,
+                   CASE
+                       WHEN g.grade_order BETWEEN 15 AND 20
+                       THEN COALESCE(
+                                TRIM(od.designation_bn), od.designation,
+                                TRIM(nd.designation_bn), nd.designation
+                            )
+                       ELSE NVL(od.designation, nd.designation)
+                   END AS old_designation,
+                   CASE
+                       WHEN g.grade_order BETWEEN 15 AND 20
+                       THEN NVL(TRIM(nd.designation_bn), nd.designation)
+                       ELSE nd.designation
+                   END AS new_designation,
+                   CASE
+                       WHEN g.grade_order BETWEEN 15 AND 20
+                       THEN NVL(TRIM(dp.dept_name_bn), dp.dept_name)
+                       ELSE dp.dept_name
+                   END AS department,
                    loc.name AS location_name,
                    g.grade_order,
                    c.name AS company_name,
