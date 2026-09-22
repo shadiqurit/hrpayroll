@@ -25,7 +25,9 @@ SELECT signatory_id, signatory_code, name_bn, title_bn, is_active
 
 SELECT template_id, template_code, template_name, is_active
   FROM hr_letter_template
- WHERE action_type = 'CONTRACT_RENEWAL';
+ WHERE action_type = 'CONTRACT_RENEWAL'
+   AND template_code IN ('CONTRACT_RENEWAL_EN', 'CONTRACT_RENEWAL_BN')
+ ORDER BY template_code;
 
 /* 4. Current contractual employees shown by Page 520 */
 SELECT c.emp_id, e.emp_id employee_code,
@@ -95,4 +97,7 @@ SELECT renewal_id, renewal_no, emp_code_snapshot,
    F. Verify a POSTED renewal cannot be edited, deleted or posted again.
    G. Verify an EXPIRED contract appears on Page 520 and can be renewed.
    H. Verify a CLOSED contract is absent from Page 520 and cannot be renewed.
+   I. Verify grade 1-14 uses CONTRACT_RENEWAL_EN and English output.
+   J. Verify grade 16-20 uses CONTRACT_RENEWAL_BN and Bangla output.
+   K. Verify grade 15 is rejected because no language range was specified.
 */

@@ -35,6 +35,7 @@ END;
 COMMENT ON COLUMN HRMS.HR_CONTRACT_RENEWAL.SALARY_MODE IS
     'AUTO advances the configured step and recalculates configured heads; MANUAL copies values for review.';
 
+@@02_contract_renewal_letter_config.sql
 @@03_pkg_hr_contract_renewal.sql
 
-PROMPT Page 520 automatic renewal generation upgrade installed.
+PROMPT Page 520 automatic renewal generation and bilingual letter upgrade installed.

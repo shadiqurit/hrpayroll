@@ -241,8 +241,56 @@ BEGIN
 END;
 /
 
-/* Bengali body follows the supplied scan. Page 522 supplies the header,
-   employee address, salary rows, signature and copy list. */
+/* Grade 1-14 English body. Page 522 supplies the header, employee address,
+   salary rows, signature and copy list. */
+MERGE INTO HRMS.HR_LETTER_TEMPLATE t
+USING (
+    SELECT 'CONTRACT_RENEWAL_EN' template_code,
+           'English Contract Renewal Letter' template_name,
+           'CONTRACT_RENEWAL' action_type,
+           'Contract Renewal' subject_template,
+           TO_CLOB(q'~
+<p>Dear Sir,</p>
+<p>Assalamu Alaikum Wa-Rahmatullah.</p>
+<p>The management of #COMPANY_NAME# is pleased to renew your contractual
+appointment for <strong>#CONTRACT_TERM#</strong>. The renewed term will run from
+<strong>#NEW_FROM_DATE#</strong> to <strong>#NEW_TO_DATE#</strong>.</p>
+<p><strong><u>Terms and conditions of contract renewal:</u></strong></p>
+<ol class="conditions">
+  <li>This decision of the management will be effective from #NEW_FROM_DATE#.</li>
+  <li>During the renewed contract you will receive salary and allowances in
+      <strong>Grade #GRADE#</strong> under the pay scale
+      <strong>#PAY_SCALE#</strong>, as detailed below:</li>
+</ol>
+#SALARY_DETAILS#
+<ol class="conditions" start="3">
+  <li>At the end of the renewed term, the company will make its next decision based on your overall performance.</li>
+  <li>You will be entitled to monthly leave according to the company's prevailing rules.</li>
+  <li>You will be entitled to two festival bonuses per year according to company policy.</li>
+  <li>The company may assign you to any workplace within its operations when required.</li>
+  <li>You will be governed by the company's current and subsequently amended service rules and administrative instructions.</li>
+</ol>
+<p>#SPECIAL_TERMS#</p>
+<p>May Almighty Allah enable us all to discharge our responsibilities and duties properly.</p>
+<p>Ma Assalam.</p>
+~') body_template
+      FROM dual
+) s
+ON (t.template_code = s.template_code)
+WHEN MATCHED THEN
+    UPDATE SET t.template_name      = s.template_name,
+               t.action_type       = s.action_type,
+               t.subject_template  = s.subject_template,
+               t.body_template     = s.body_template,
+               t.is_active         = 'Y',
+               t.upd_date          = SYSDATE
+WHEN NOT MATCHED THEN
+    INSERT (template_code, template_name, action_type, subject_template,
+            body_template, is_active)
+    VALUES (s.template_code, s.template_name, s.action_type,
+            s.subject_template, s.body_template, 'Y');
+
+/* Grade 16-20 Bengali body follows the supplied scan. */
 MERGE INTO HRMS.HR_LETTER_TEMPLATE t
 USING (
     SELECT 'CONTRACT_RENEWAL_BN' template_code,

@@ -31,6 +31,8 @@ DECLARE
     L_COMPANY          VARCHAR2(200);
     L_NEW_FROM         DATE;
     L_NEW_TO           DATE;
+    L_GRADE_ORDER      NUMBER;
+    L_IS_BENGALI       BOOLEAN := FALSE;
     L_SIGN_NAME        VARCHAR2(200);
     L_SIGN_TITLE       VARCHAR2(200);
     L_TOKEN_POS        PLS_INTEGER;
@@ -78,13 +80,29 @@ DECLARE
     END BN_DATE;
 
     FUNCTION DISPLAY_MONEY (P_AMOUNT IN NUMBER) RETURN VARCHAR2 IS
+        L_AMOUNT VARCHAR2(100);
     BEGIN
-        RETURN BN_DIGITS(
-            TO_CHAR(NVL(P_AMOUNT, 0),
-                    'FM999G999G999G990D00',
-                    'NLS_NUMERIC_CHARACTERS=''.,''')
+        L_AMOUNT := TO_CHAR(
+            NVL(P_AMOUNT, 0),
+            'FM999G999G999G990D00',
+            'NLS_NUMERIC_CHARACTERS=''.,'''
         );
+
+        IF L_IS_BENGALI THEN
+            RETURN BN_DIGITS(L_AMOUNT);
+        END IF;
+
+        RETURN L_AMOUNT;
     END DISPLAY_MONEY;
+
+    FUNCTION DISPLAY_DATE (P_DATE IN DATE) RETURN VARCHAR2 IS
+    BEGIN
+        IF L_IS_BENGALI THEN
+            RETURN BN_DATE(P_DATE);
+        END IF;
+
+        RETURN TO_CHAR(P_DATE, 'DD Month YYYY', 'NLS_DATE_LANGUAGE=English');
+    END DISPLAY_DATE;
 
     FUNCTION BN_HEAD_NAME (
         P_HEADCODE IN VARCHAR2,
@@ -141,8 +159,17 @@ BEGIN
            R.COMPANY_SNAPSHOT,
            R.NEW_FROM_DATE,
            R.NEW_TO_DATE,
-           S.NAME_BN,
-           S.TITLE_BN
+           G.GRADE_ORDER,
+           CASE
+               WHEN G.GRADE_ORDER BETWEEN 16 AND 20
+               THEN NVL(S.NAME_BN, S.NAME_EN)
+               ELSE S.NAME_EN
+           END,
+           CASE
+               WHEN G.GRADE_ORDER BETWEEN 16 AND 20
+               THEN NVL(S.TITLE_BN, S.TITLE_EN)
+               ELSE S.TITLE_EN
+           END
       INTO L_BODY,
            L_SUBJECT,
            L_LETTER_NO,
@@ -158,6 +185,7 @@ BEGIN
            L_COMPANY,
            L_NEW_FROM,
            L_NEW_TO,
+           L_GRADE_ORDER,
            L_SIGN_NAME,
            L_SIGN_TITLE
       FROM HR_CONTRACT_RENEWAL R
@@ -168,10 +196,23 @@ BEGIN
        AND L.CONTRACT_RENEWAL_ID = R.RENEWAL_ID
       JOIN HR_LETTER_SIGNATORY S
         ON S.SIGNATORY_ID = R.SIGNATORY_ID
+      JOIN JOB_GRADES G
+        ON G.ID = R.NEW_GRADE_ID
      WHERE R.RENEWAL_ID = L_RENEWAL_ID
        AND E.COM_ID = :P522_COM_ID
        AND R.STATUS = 'POSTED'
        AND L.STATUS = 'ISSUED';
+
+    IF L_GRADE_ORDER BETWEEN 1 AND 14 THEN
+        L_IS_BENGALI := FALSE;
+    ELSIF L_GRADE_ORDER BETWEEN 16 AND 20 THEN
+        L_IS_BENGALI := TRUE;
+    ELSE
+        RAISE_APPLICATION_ERROR(
+            -20749,
+            'Contract renewal letters support grades 1-14 in English and grades 16-20 in Bangla.'
+        );
+    END IF;
 
     SELECT COUNT(*)
       INTO L_TO_COUNT
@@ -181,7 +222,14 @@ BEGIN
      WHERE X.RENEWAL_ID = L_RENEWAL_ID
        AND X.SECTION_TYPE = 'TO'
        AND X.IS_ACTIVE = 'Y'
-       AND NVL(M.RECIPIENT_NAME_BN, X.LINE_TEXT) IS NOT NULL;
+       AND NVL(
+               CASE
+                   WHEN L_GRADE_ORDER BETWEEN 16 AND 20
+                   THEN NVL(M.RECIPIENT_NAME_BN, M.RECIPIENT_NAME_EN)
+                   ELSE M.RECIPIENT_NAME_EN
+               END,
+               X.LINE_TEXT
+           ) IS NOT NULL;
 
     SELECT COUNT(*)
       INTO L_COPY_COUNT
@@ -191,17 +239,28 @@ BEGIN
      WHERE X.RENEWAL_ID = L_RENEWAL_ID
        AND X.SECTION_TYPE = 'COPY'
        AND X.IS_ACTIVE = 'Y'
-       AND NVL(M.RECIPIENT_NAME_BN, X.LINE_TEXT) IS NOT NULL;
+       AND NVL(
+               CASE
+                   WHEN L_GRADE_ORDER BETWEEN 16 AND 20
+                   THEN NVL(M.RECIPIENT_NAME_BN, M.RECIPIENT_NAME_EN)
+                   ELSE M.RECIPIENT_NAME_EN
+               END,
+               X.LINE_TEXT
+           ) IS NOT NULL;
 
     HTP.P(q'~
+    <div id="divToPrint">
 <div id="contractLetterRoot">
 <style>
 * { box-sizing: border-box; }
 .contract-shell {
   max-width: 920px; margin: 0 auto; color: #111;
+}
+.contract-shell.bn {
   font-family: "Noto Sans Bengali", "Hind Siliguri", "SolaimanLipi",
                "Kalpurush", "Arial Unicode MS", sans-serif;
 }
+.contract-shell.en { font-family: Georgia, "Times New Roman", serif; }
 .contract-toolbar { display: flex; justify-content: flex-end; margin: 0 0 12px; }
 .contract-page {
   position: relative; width: 210mm; min-height: 297mm; margin: 0 auto;
@@ -260,23 +319,43 @@ BEGIN
 </style>
 ~');
 
-    HTP.P('<div class="contract-shell" lang="bn">');
+    HTP.P('<div class="contract-shell '
+          || CASE WHEN L_IS_BENGALI THEN 'bn' ELSE 'en' END
+          || '" lang="' || CASE WHEN L_IS_BENGALI THEN 'bn' ELSE 'en' END || '">');
     HTP.P('<div class="contract-toolbar"><button type="button" '
-          || 'class="t-Button t-Button--hot" onclick="printContractLetter();">'
+          || 'class="t-Button t-Button--hot" onclick="printContent();">'
           || '<span class="fa fa-print" aria-hidden="true"></span> '
-          || 'চুক্তি নবায়ন পত্র প্রিন্ট করুন</button></div>');
+          || CASE WHEN L_IS_BENGALI
+                  THEN 'চুক্তি নবায়ন পত্র প্রিন্ট করুন'
+                  ELSE 'Print Contract Renewal Letter' END
+          || '</button></div>');
     HTP.P('<article class="contract-page">');
 
-    HTP.P('<div class="department-line">হিউম্যান রিসোর্স ডিপার্টমেন্ট</div>');
-    HTP.P('<div class="letter-meta"><div><strong>সূত্র নং :</strong> '
+    HTP.P('<div class="department-line">'
+          || CASE WHEN L_IS_BENGALI
+                  THEN 'হিউম্যান রিসোর্স ডিপার্টমেন্ট'
+                  ELSE 'Human Resources Department' END
+          || '</div>');
+    HTP.P('<div class="letter-meta"><div><strong>'
+          || CASE WHEN L_IS_BENGALI THEN 'সূত্র নং :' ELSE 'Reference:' END
+          || '</strong> '
           || ESC(NVL(L_LETTER_NO, L_RENEWAL_NO))
-          || '</div><div><strong>তারিখ :</strong> '
-          || ESC(BN_DATE(L_LETTER_DATE)) || '</div></div>');
+          || '</div><div><strong>'
+          || CASE WHEN L_IS_BENGALI THEN 'তারিখ :' ELSE 'Date:' END
+          || '</strong> ' || ESC(DISPLAY_DATE(L_LETTER_DATE)) || '</div></div>');
 
     IF L_TO_COUNT > 0 THEN
-        HTP.P('<div class="employee-address">প্রতি');
+        HTP.P('<div class="employee-address">'
+              || CASE WHEN L_IS_BENGALI THEN 'প্রতি' ELSE 'To' END);
         FOR R IN (
-            SELECT NVL(M.RECIPIENT_NAME_BN, X.LINE_TEXT) RECIPIENT_TEXT
+            SELECT NVL(
+                       CASE
+                           WHEN L_GRADE_ORDER BETWEEN 16 AND 20
+                           THEN NVL(M.RECIPIENT_NAME_BN, M.RECIPIENT_NAME_EN)
+                           ELSE M.RECIPIENT_NAME_EN
+                       END,
+                       X.LINE_TEXT
+                   ) RECIPIENT_TEXT
               FROM HR_CONTRACT_RENEW_RECIPIENT X
               LEFT JOIN HR_LETTER_RECIPIENT M
                 ON M.LETTER_RECIPIENT_ID = X.LETTER_RECIPIENT_ID
@@ -288,7 +367,7 @@ BEGIN
             HTP.P('<br>' || ESC_MULTILINE(R.RECIPIENT_TEXT));
         END LOOP;
         HTP.P('</div>');
-    ELSE
+    ELSIF L_IS_BENGALI THEN
         HTP.P('<div class="employee-address"><span class="employee-name">জনাব '
               || ESC(L_EMP_NAME) || '</span><br>Staff No. # '
               || ESC(L_EMP_CODE) || ',<br>'
@@ -298,9 +377,23 @@ BEGIN
               || CASE WHEN L_LOCATION IS NOT NULL THEN ',<br>' || ESC(L_LOCATION) END
               || CASE WHEN L_ADDRESS IS NOT NULL THEN ', ' || ESC_MULTILINE(L_ADDRESS) END
               || '।</div>');
+    ELSE
+        HTP.P('<div class="employee-address"><span class="employee-name">Mr. '
+              || ESC(L_EMP_NAME) || '</span><br>Staff No. # '
+              || ESC(L_EMP_CODE) || ',<br>'
+              || ESC(L_DESIGNATION)
+              || CASE WHEN L_DEPARTMENT IS NOT NULL THEN ', ' || ESC(L_DEPARTMENT) END
+              || ',<br>' || ESC(L_COMPANY)
+              || CASE WHEN L_LOCATION IS NOT NULL THEN ',<br>' || ESC(L_LOCATION) END
+              || CASE WHEN L_ADDRESS IS NOT NULL THEN ', ' || ESC_MULTILINE(L_ADDRESS) END
+              || '.</div>');
     END IF;
 
-    HTP.P('<div class="letter-subject">বিষয় : ' || ESC(L_SUBJECT) || '।</div>');
+    HTP.P('<div class="letter-subject">'
+          || CASE WHEN L_IS_BENGALI THEN 'বিষয় : ' ELSE 'Subject: ' END
+          || ESC(L_SUBJECT)
+          || CASE WHEN L_IS_BENGALI THEN '।' ELSE '' END
+          || '</div>');
     HTP.P('<div class="letter-body">');
 
     L_TOKEN_POS := DBMS_LOB.INSTR(L_BODY, '#SALARY_DETAILS#');
@@ -326,15 +419,21 @@ BEGIN
         L_ROW_COUNT := L_ROW_COUNT + 1;
         L_TOTAL := L_TOTAL + NVL(R.NEW_AMOUNT, 0);
         HTP.P('<div class="salary-line"><div class="salary-label">'
-              || ESC(BN_HEAD_NAME(R.HEADCODE, R.HEAD_NAME))
+              || ESC(CASE WHEN L_IS_BENGALI
+                          THEN BN_HEAD_NAME(R.HEADCODE, R.HEAD_NAME)
+                          ELSE R.HEAD_NAME END)
               || '</div><div class="salary-colon">:</div><div class="salary-amount">'
               || DISPLAY_MONEY(R.NEW_AMOUNT) || '</div></div>');
     END LOOP;
 
     IF L_ROW_COUNT = 0 THEN
-        HTP.P('<div>বেতন-ভাতার বিবরণ পাওয়া যায়নি।</div>');
+        HTP.P('<div>' || CASE WHEN L_IS_BENGALI
+                             THEN 'বেতন-ভাতার বিবরণ পাওয়া যায়নি।'
+                             ELSE 'Salary and allowance details were not found.' END
+              || '</div>');
     ELSE
-        HTP.P('<div class="salary-line salary-total"><div class="salary-label">মোট</div>'
+        HTP.P('<div class="salary-line salary-total"><div class="salary-label">'
+              || CASE WHEN L_IS_BENGALI THEN 'মোট' ELSE 'Total' END || '</div>'
               || '<div class="salary-colon">=</div><div class="salary-amount">'
               || DISPLAY_MONEY(L_TOTAL) || '</div></div>');
     END IF;
@@ -342,10 +441,17 @@ BEGIN
 
     IF L_ROW_COUNT > 0 THEN
         BEGIN
-            L_TOTAL_WORDS := F_INWORD_TK_BN(L_TOTAL);
+            IF L_IS_BENGALI THEN
+                L_TOTAL_WORDS := F_INWORD_TK_BN(L_TOTAL);
+            ELSE
+                L_TOTAL_WORDS := F_INWORD_TK(L_TOTAL);
+            END IF;
         EXCEPTION
             WHEN OTHERS THEN
-                L_TOTAL_WORDS := DISPLAY_MONEY(L_TOTAL) || ' টাকা মাত্র';
+                L_TOTAL_WORDS := DISPLAY_MONEY(L_TOTAL)
+                                 || CASE WHEN L_IS_BENGALI
+                                         THEN ' টাকা মাত্র'
+                                         ELSE ' taka only' END;
         END;
         HTP.P('<p class="total-words">(' || ESC(L_TOTAL_WORDS) || ');</p>');
     END IF;
@@ -365,9 +471,18 @@ BEGIN
           || '<div>' || ESC(L_SIGN_TITLE) || '</div></div>');
 
     IF L_COPY_COUNT > 0 THEN
-        HTP.P('<div class="copy-section"><strong>অনুলিপিঃ</strong><ol>');
+        HTP.P('<div class="copy-section"><strong>'
+              || CASE WHEN L_IS_BENGALI THEN 'অনুলিপিঃ' ELSE 'Copy to:' END
+              || '</strong><ol>');
         FOR R IN (
-            SELECT NVL(M.RECIPIENT_NAME_BN, X.LINE_TEXT) RECIPIENT_TEXT
+            SELECT NVL(
+                       CASE
+                           WHEN L_GRADE_ORDER BETWEEN 16 AND 20
+                           THEN NVL(M.RECIPIENT_NAME_BN, M.RECIPIENT_NAME_EN)
+                           ELSE M.RECIPIENT_NAME_EN
+                       END,
+                       X.LINE_TEXT
+                   ) RECIPIENT_TEXT
               FROM HR_CONTRACT_RENEW_RECIPIENT X
               LEFT JOIN HR_LETTER_RECIPIENT M
                 ON M.LETTER_RECIPIENT_ID = X.LETTER_RECIPIENT_ID
@@ -384,9 +499,12 @@ BEGIN
     HTP.P('</div>');
     HTP.P('<footer class="contract-footer">'
           || ESC(L_COMPANY) || ' | ' || ESC(L_RENEWAL_NO)
-          || ' | মেয়াদ: ' || ESC(BN_DATE(L_NEW_FROM))
-          || ' - ' || ESC(BN_DATE(L_NEW_TO))
-          || CASE WHEN L_LETTER_STATUS = 'ISSUED' THEN ' | চূড়ান্ত' ELSE '' END
+          || CASE WHEN L_IS_BENGALI THEN ' | মেয়াদ: ' ELSE ' | Term: ' END
+          || ESC(DISPLAY_DATE(L_NEW_FROM))
+          || ' - ' || ESC(DISPLAY_DATE(L_NEW_TO))
+          || CASE WHEN L_LETTER_STATUS = 'ISSUED'
+                  THEN CASE WHEN L_IS_BENGALI THEN ' | চূড়ান্ত' ELSE ' | Final' END
+                  ELSE '' END
           || '</footer>');
     HTP.P('</article></div></div>');
 
@@ -401,5 +519,5 @@ EXCEPTION
         HTP.P('<div class="t-Alert t-Alert--danger t-Alert--defaultIcons">Invalid renewal ID.</div>');
     WHEN OTHERS THEN
         HTP.P('<div class="t-Alert t-Alert--danger t-Alert--defaultIcons">'
-              || APEX_ESCAPE.HTML(SQLERRM) || '</div>');
+              || APEX_ESCAPE.HTML(SQLERRM) || '</div> </div>');
 END;

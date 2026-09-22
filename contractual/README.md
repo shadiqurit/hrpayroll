@@ -20,7 +20,7 @@ does not ask the user to select the employee again.
 |---:|---|---|
 | 520 | Contract Renewal List | Shows due employees and generates the renewal master/detail |
 | 521 | Renewal Master/Detail | Reviews or adjusts the generated contract and salary |
-| 522 | Contract Renewal Letter | Shows and prints the final Bengali letter |
+| 522 | Contract Renewal Letter | Shows and prints the grade-based English or Bangla letter |
 
 Only two statuses are used:
 
@@ -48,6 +48,16 @@ The call generates both levels in one database transaction:
 - new end date from the selected renewal term, normally 12 months;
 - default letter template, signatory and copy recipients; and
 - old/new Basic and gross totals.
+
+Letter language is selected automatically from the renewed grade order:
+
+- grades 1-14: `CONTRACT_RENEWAL_EN` (English);
+- grades 16-20: `CONTRACT_RENEWAL_BN` (Bangla).
+
+Grade 15 is intentionally rejected because it is outside the configured ranges.
+Employee, designation, department, signatory and recipient names follow the
+selected language; Bangla master values fall back to their English values when
+the Bangla column is null.
 
 For older `HR_EMPLOYEE_CONTRACT` rows with missing position data, preparation
 derives and stores the values automatically:
@@ -126,8 +136,9 @@ For an existing installation created from the earlier version, run:
 @99_contract_renewal_checks.sql
 ```
 
-The upgrade adds `SALARY_MODE` and recompiles the package. Do not continue if
-`USER_ERRORS` contains package or trigger errors.
+The upgrade adds `SALARY_MODE` when needed, installs both grade-based letter
+templates, and recompiles the package. Do not continue if `USER_ERRORS`
+contains package or trigger errors.
 
 ## 5. Page 520 - Due Employees
 
@@ -177,8 +188,12 @@ Allow these values to be edited only while status is `DRAFT`:
 - new contract end date;
 - new grade, scale and step;
 - reason, remarks and special terms;
-- signatory and letter template; and
+- signatory; and
 - allowed proposed salary amounts.
+
+`P521_TEMPLATE_ID` is display-only. The package automatically changes it when
+`P521_NEW_GRADE_ID` changes, so users cannot select a template in the wrong
+language.
 
 The new start date is display-only because it must always be the day after the
 current contract ends.
@@ -262,3 +277,8 @@ their end date is on or before `P520_DUE_TO`; `CLOSED` contracts are excluded.
 8. Confirm a posted renewal is read-only and Page 522 prints correctly.
 9. Confirm an `EXPIRED` contract appears in the due list and can be renewed.
 10. Confirm a `CLOSED` contract does not appear and cannot be renewed.
+11. Confirm grades 1-14 generate the English template, English names, dates,
+    salary labels, signatory and copy recipients.
+12. Confirm grades 16-20 generate the Bangla template and use `NAME_BN`,
+    `DESIGNATION_BN` and `DEPT_NAME_BN` with English fallback.
+13. Confirm grade 15 is rejected with the configured-range validation message.

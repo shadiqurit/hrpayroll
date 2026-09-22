@@ -33,7 +33,10 @@
        P521_NEW_TO_DATE, P521_NEW_GRADE_ID, P521_NEW_SCALE_ID,
        P521_NEW_STEP_NO,
        P521_REASON, P521_REMARKS, P521_SPECIAL_TERMS,
-       P521_SIGNATORY_ID, P521_TEMPLATE_ID
+       P521_SIGNATORY_ID
+
+     Automatically selected from P521_NEW_GRADE_ID and display-only:
+       P521_TEMPLATE_ID
 
      Final confirmation:
        P521_FINAL_CONFIRM
@@ -151,18 +154,28 @@ SELECT 'Step ' || step_no || ' - ' ||
  ORDER BY step_no;
 
 /* Signatory LOV */
-SELECT name_bn || ' - ' || title_bn d, signatory_id r
+SELECT name_en || ' - ' || title_en
+       || CASE WHEN name_bn IS NOT NULL
+               THEN ' / ' || name_bn || ' - ' || title_bn END d,
+       signatory_id r
   FROM hr_letter_signatory
  WHERE is_active = 'Y'
- ORDER BY display_order, name_bn;
+ ORDER BY display_order, name_en;
 
-/* Template LOV */
+/* Template LOV - configure P521_TEMPLATE_ID as display-only. */
 SELECT template_name d, template_id r
   FROM hr_letter_template
  WHERE action_type = 'CONTRACT_RENEWAL'
    AND is_active = 'Y'
- ORDER BY CASE WHEN template_code = 'CONTRACT_RENEWAL_BN' THEN 0 ELSE 1 END,
-          template_name;
+   AND template_code = (
+       SELECT CASE
+                  WHEN grade_order BETWEEN 1 AND 14 THEN 'CONTRACT_RENEWAL_EN'
+                  WHEN grade_order BETWEEN 16 AND 20 THEN 'CONTRACT_RENEWAL_BN'
+              END
+         FROM job_grades
+        WHERE id = TO_NUMBER(:P521_NEW_GRADE_ID)
+   )
+ ORDER BY template_name;
 
 
 /* Salary Detail - editable Interactive Grid
@@ -252,7 +265,6 @@ BEGIN
         p_remarks       => :P521_REMARKS,
         p_special_terms => :P521_SPECIAL_TERMS,
         p_signatory_id  => TO_NUMBER(:P521_SIGNATORY_ID),
-        p_template_id   => TO_NUMBER(:P521_TEMPLATE_ID),
         p_user_id       => TO_NUMBER(:USER_ID)
     );
 END;
