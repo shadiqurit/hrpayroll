@@ -244,7 +244,9 @@ r.status = 'POSTED'
 - `CONTRACT_RENEW_POST`
 
 `CONTRACT_BASELINE_ADMIN` is no longer part of the normal Page 520 flow because
-the due list only shows employees with an active `HR_EMPLOYEE_CONTRACT` row.
+the due list only shows employees with a non-closed `HR_EMPLOYEE_CONTRACT` row.
+Both `ACTIVE` and `EXPIRED` contracts are renewable and remain visible when
+their end date is on or before `P520_DUE_TO`; `CLOSED` contracts are excluded.
 
 ## 10. Minimum tests
 
@@ -258,3 +260,5 @@ the due list only shows employees with an active `HR_EMPLOYEE_CONTRACT` row.
 6. Confirm an employee at maximum step cannot use `AUTO` but can use `MANUAL`.
 7. Confirm a second draft cannot be generated for the same employee.
 8. Confirm a posted renewal is read-only and Page 522 prints correctly.
+9. Confirm an `EXPIRED` contract appears in the due list and can be renewed.
+10. Confirm a `CLOSED` contract does not appear and cannot be renewed.

@@ -18,7 +18,7 @@ CREATE OR REPLACE PACKAGE HRMS.PKG_HR_CONTRACT_RENEWAL AS
     );
 
     /* Page 520 one-click preparation. Dates, grade, scale, step and salary
-       details are derived from the employee's active contract/salary. */
+       details are derived from the employee's non-closed contract/salary. */
     PROCEDURE CREATE_DUE_RENEWAL (
         P_EMP_ID       IN  NUMBER,
         P_SALARY_MODE  IN  VARCHAR2,
@@ -506,7 +506,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
                    L_OLD_GRADE_ID, L_OLD_SCALE_ID, L_OLD_STEP_NO
               FROM HRMS.HR_EMPLOYEE_CONTRACT
              WHERE EMP_ID = P_EMP_ID
-               AND CONTRACT_STATUS = 'ACTIVE'
+               AND CONTRACT_STATUS <> 'CLOSED'
              FOR UPDATE NOWAIT;
         EXCEPTION
             WHEN NO_DATA_FOUND THEN
@@ -684,11 +684,11 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
               JOIN HRMS.EMPLOYEES E ON E.ID = C.EMP_ID
               LEFT JOIN HRMS.DESIGNATIONS D ON D.ID = E.DESIG_ID
              WHERE C.EMP_ID = P_EMP_ID
-               AND C.CONTRACT_STATUS = 'ACTIVE'
+               AND C.CONTRACT_STATUS <> 'CLOSED'
              FOR UPDATE OF C.GRADE_ID NOWAIT;
         EXCEPTION
             WHEN NO_DATA_FOUND THEN
-                RAISE_APPLICATION_ERROR(-20742, 'Employee has no active contract to renew.');
+                RAISE_APPLICATION_ERROR(-20742, 'Employee has no active or expired contract to renew.');
         END;
 
         IF L_GRADE_ID IS NULL THEN
@@ -1164,7 +1164,7 @@ CREATE OR REPLACE PACKAGE BODY HRMS.PKG_HR_CONTRACT_RENEWAL AS
           INTO L_MASTER_FROM, L_MASTER_TO, L_MASTER_GRADE, L_MASTER_SCALE, L_MASTER_STEP
           FROM HRMS.HR_EMPLOYEE_CONTRACT
          WHERE EMP_ID = L_EMP_ID
-           AND CONTRACT_STATUS = 'ACTIVE'
+           AND CONTRACT_STATUS <> 'CLOSED'
          FOR UPDATE NOWAIT;
 
         IF TRUNC(L_MASTER_FROM) <> TRUNC(L_CURRENT_FROM)

@@ -33,6 +33,7 @@ SELECT c.emp_id, e.emp_id employee_code,
        c.grade_id, c.scale_id, c.step_no, c.contract_status
   FROM hr_employee_contract c
   JOIN employees e ON e.id = c.emp_id
+ WHERE c.contract_status <> 'CLOSED'
  ORDER BY c.contract_to_date, e.emp_id;
 
 /* 5. Drafts and final renewals */
@@ -92,4 +93,6 @@ SELECT renewal_id, renewal_no, emp_code_snapshot,
    E. Change live salary after creating a test draft; Final Submit must reject
       it until Refresh Salary is used and the proposal is reviewed again.
    F. Verify a POSTED renewal cannot be edited, deleted or posted again.
+   G. Verify an EXPIRED contract appears on Page 520 and can be renewed.
+   H. Verify a CLOSED contract is absent from Page 520 and cannot be renewed.
 */

@@ -82,9 +82,8 @@ due_base AS (
       LEFT JOIN locations l ON l.id = e.loc_id
       LEFT JOIN job_grades g ON g.id = c.grade_id
       LEFT JOIN live_salary ls ON ls.employee_id = c.emp_id
-     WHERE c.contract_status = 'ACTIVE'
+     WHERE c.contract_status <> 'CLOSED'
        AND e.com_id = :P520_COM_ID
-       AND NVL(e.status, 1) <> 0
        AND c.contract_to_date <= NVL(
                TO_DATE(:P520_DUE_TO, 'DD-MON-YYYY'),
                TRUNC(SYSDATE) + 90
@@ -244,8 +243,7 @@ BEGIN
       JOIN employees e ON e.id = c.emp_id
      WHERE c.emp_id = TO_NUMBER(:P520_EMP_ID)
        AND e.com_id = TO_NUMBER(:P520_COM_ID)
-       AND NVL(e.status, 1) <> 0
-       AND c.contract_status = 'ACTIVE'
+       AND c.contract_status <> 'CLOSED'
        AND c.contract_to_date <= NVL(
                TO_DATE(:P520_DUE_TO, 'DD-MON-YYYY'),
                TRUNC(SYSDATE) + 90
@@ -346,7 +344,7 @@ SELECT apex_page.get_url(
 
    The report button must submit Page 520 so the After Submit process runs.
    P520_EMP_ID is deliberately not Value Protected; the server-side process
-   validates employee, company, active contract, and due date before creation.
+   validates employee, company, renewable contract, and due date before creation.
 */
 apex.jQuery(document).on('click.contractRenewal', '.js-prepare-renewal', function () {
     apex.item('P520_EMP_ID').setValue($(this).attr('data-emp-id'));
