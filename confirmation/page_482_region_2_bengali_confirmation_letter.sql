@@ -301,7 +301,11 @@ BEGIN
   break-inside: avoid;
   page-break-inside: avoid;
 }
-.bengali-letter .signature-block { flex: 0 0 45%; }
+.bengali-letter .signature-block {
+  position: relative;
+  top: -25px;
+  flex: 0 0 45%;
+}
 .bengali-letter .signature-space { height: 30px; }
 .bengali-letter .signature-name { font-weight: 700; }
 .bengali-letter .copy-section { flex: 0 0 48%; font-size: 11px; }
