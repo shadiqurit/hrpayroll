@@ -1,6 +1,4 @@
-DROP TABLE HRMS.LEAVE_REQUEST CASCADE CONSTRAINTS;
-
-CREATE TABLE HRMS.LEAVE_REQUEST
+CREATE TABLE LEAVE_REQUEST
 (
   LEAVE_ID       NUMBER,
   EMPID          NUMBER                         NOT NULL,
@@ -21,56 +19,26 @@ CREATE TABLE HRMS.LEAVE_REQUEST
   UPD_BY         NUMBER,
   APP_LEAVE_TYP  VARCHAR2(30 BYTE),
   COMMENTS       VARCHAR2(200 BYTE)
-)
-TABLESPACE HRMS
-PCTUSED    0
-PCTFREE    10
-INITRANS   1
-MAXTRANS   255
-STORAGE    (
-            INITIAL          64K
-            NEXT             1M
-            MINEXTENTS       1
-            MAXEXTENTS       UNLIMITED
-            PCTINCREASE      0
-            BUFFER_POOL      DEFAULT
-           )
-LOGGING 
-NOCOMPRESS 
-NOCACHE;
+);
 
 
-ALTER TABLE HRMS.LEAVE_REQUEST ADD (
+ALTER TABLE LEAVE_REQUEST ADD (
   PRIMARY KEY
-  (LEAVE_ID)
-  USING INDEX
-    TABLESPACE HRMS
-    PCTFREE    10
-    INITRANS   2
-    MAXTRANS   255
-    STORAGE    (
-                INITIAL          64K
-                NEXT             1M
-                MINEXTENTS       1
-                MAXEXTENTS       UNLIMITED
-                PCTINCREASE      0
-                BUFFER_POOL      DEFAULT
-               )
-  ENABLE VALIDATE);
+  (LEAVE_ID));
+
+ALTER TABLE LEAVE_REQUEST ADD (
+  CONSTRAINT CK_LEAVE_REQUEST_STATUS CHECK (REQUEST_STATUS IN ('D', 'F', 'A')));
+
+COMMENT ON COLUMN LEAVE_REQUEST.REQUEST_STATUS
+  IS 'D = Draft, F = Forwarded, A = Final';
 
 
 --  There is no statement for index HRMS.SYS_C0020157.
 --  The object is created when the parent object is created.
 
-ALTER TABLE HRMS.LEAVE_REQUEST ADD (
-  CONSTRAINT CK_LEAVE_REQUEST_STATUS CHECK (REQUEST_STATUS IN ('D', 'F', 'A')));
-
-COMMENT ON COLUMN HRMS.LEAVE_REQUEST.REQUEST_STATUS
-  IS 'D = Draft, F = Forwarded, A = Final';
-
-CREATE OR REPLACE TRIGGER HRMS.trg_leave_request_insert
+CREATE OR REPLACE TRIGGER trg_leave_request_insert
     AFTER INSERT
-    ON HRMS.LEAVE_REQUEST
+    ON leave_request
     FOR EACH ROW
 DECLARE
     -- Declare variables to hold approver IDs
@@ -163,9 +131,9 @@ END;
 /
 
 
-CREATE OR REPLACE TRIGGER HRMS.trg_leave_request_pk
+CREATE OR REPLACE TRIGGER trg_leave_request_pk
     BEFORE INSERT OR UPDATE
-    ON HRMS.LEAVE_REQUEST
+    ON leave_request
     FOR EACH ROW
 BEGIN
     IF :new.leave_id IS NULL

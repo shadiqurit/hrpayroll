@@ -1,0 +1,34 @@
+CREATE TABLE LEAVE_APP_HISTORY
+(
+  ID               NUMBER                       NOT NULL,
+  LEAVE_ID         NUMBER,
+  APPROVER_LEVEL   VARCHAR2(50 BYTE),
+  APPROVER_ID      NUMBER,
+  APPROVAL_DATE    DATE,
+  APPROVAL_STATUS  VARCHAR2(50 BYTE),
+  COMMENTS         VARCHAR2(300 BYTE),
+  COM_ID           NUMBER,
+  ENT_DATE         DATE                         DEFAULT SYSDATE,
+  ENT_BY           NUMBER,
+  UPD_DATE         DATE,
+  UPD_BY           NUMBER
+);
+
+
+CREATE OR REPLACE TRIGGER trg_leave_app_history_pk
+    BEFORE INSERT OR UPDATE
+    ON LEAVE_APP_HISTORY
+    FOR EACH ROW
+BEGIN
+    IF :new.id IS NULL
+    THEN
+        SELECT NVL (MAX (id), 0) + 1 INTO :new.id FROM leave_app_history;
+    END IF;
+END;
+/
+
+
+ALTER TABLE LEAVE_APP_HISTORY ADD (
+  FOREIGN KEY (LEAVE_ID) 
+  REFERENCES LEAVE_REQUEST (LEAVE_ID)
+  ENABLE VALIDATE);

@@ -1,0 +1,52 @@
+CREATE TABLE LEAVE_ALLOCATION
+(
+  ALLOCATION_ID    NUMBER,
+  EMPID            NUMBER                       NOT NULL,
+  LEAVE_TYPE_ID    NUMBER,
+  ALLOCATED_DAYS   NUMBER                       NOT NULL,
+  ALLOCATION_YEAR  NUMBER,
+  ALLOCATED_DATE   DATE                         DEFAULT SYSDATE,
+  ENT_DATE         DATE                         DEFAULT SYSDATE,
+  ENT_BY           NUMBER,
+  UPD_DATE         DATE,
+  UPD_BY           NUMBER,
+  COM_ID           NUMBER
+);
+
+
+ALTER TABLE LEAVE_ALLOCATION ADD (
+  PRIMARY KEY
+  (ALLOCATION_ID));
+
+
+--  There is no statement for index HRMS.SYS_C0020271.
+--  The object is created when the parent object is created.
+
+CREATE SEQUENCE HR_LEAVE_ALLOCATION_SEQ
+  START WITH 23421
+  MAXVALUE 9999999999999999999999999999
+  MINVALUE 1
+  NOCYCLE
+  CACHE 20
+  NOORDER
+  NOKEEP
+  NOSCALE
+  GLOBAL;
+
+
+CREATE OR REPLACE TRIGGER trg_hr_leave_allocation
+    BEFORE INSERT ON leave_allocation
+    FOR EACH ROW
+BEGIN
+    :NEW.allocation_id := hr_leave_allocation_seq.NEXTVAL;    
+END;
+/
+
+
+ALTER TABLE LEAVE_ALLOCATION ADD (
+  FOREIGN KEY (EMPID) 
+  REFERENCES EMPLOYEES (ID)
+  ENABLE VALIDATE
+,  FOREIGN KEY (LEAVE_TYPE_ID) 
+  REFERENCES LEAVE_TYPES (LT_ID)
+  ENABLE VALIDATE);
