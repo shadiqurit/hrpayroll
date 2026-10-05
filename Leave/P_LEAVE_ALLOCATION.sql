@@ -1,7 +1,8 @@
 CREATE OR REPLACE PROCEDURE HRMS.p_leave_allocation (
     p_year                  IN NUMBER,
     p_as_of_date            IN DATE DEFAULT SYSDATE,
-    p_rl_all_employees      IN NUMBER DEFAULT 0
+    p_rl_all_employees      IN NUMBER DEFAULT 0,
+    p_el_only              IN NUMBER DEFAULT 0
 )
 AUTHID DEFINER
 AS
@@ -10,6 +11,10 @@ BEGIN
     -- Validate even when the employee table is empty.
     v_check := HRMS.fn_leave_entitlement(
         p_year, p_as_of_date, NULL, NULL, NULL, NULL, 'EL', p_rl_all_employees);
+
+    IF p_el_only IS NULL OR p_el_only NOT IN (0, 1) THEN
+        RAISE_APPLICATION_ERROR(-20058, 'Allocation scope must be 0 (SL/CL/RL) or 1 (EL only).');
+    END IF;
 
     -- EMPLOYEES.EMP_TYPE is VARCHAR2 in the supplied table definition but
     -- stores numeric T_EMP_TYP.ID values. Compare their character forms to
@@ -30,7 +35,8 @@ BEGIN
           FROM HRMS.employees e
           JOIN HRMS.leave_types lt
             ON lt.active_flag = 'Y'
-           AND UPPER(TRIM(lt.short_code)) IN ('SL', 'CL', 'EL', 'RL')
+           AND ((p_el_only = 1 AND UPPER(TRIM(lt.short_code)) = 'EL')
+                OR (p_el_only = 0 AND UPPER(TRIM(lt.short_code)) IN ('SL', 'CL', 'RL')))
            AND (lt.com_id = e.com_id OR
                 (lt.com_id IS NULL AND NOT EXISTS (
                     SELECT 1 FROM HRMS.leave_types local_lt
@@ -57,7 +63,8 @@ BEGIN
           JOIN HRMS.t_emp_typ et ON TRIM(e.emp_type) = TO_CHAR(et.id)
           JOIN HRMS.leave_types lt
             ON lt.active_flag = 'Y'
-           AND UPPER(TRIM(lt.short_code)) IN ('SL', 'CL', 'EL', 'RL')
+           AND ((p_el_only = 1 AND UPPER(TRIM(lt.short_code)) = 'EL')
+                OR (p_el_only = 0 AND UPPER(TRIM(lt.short_code)) IN ('SL', 'CL', 'RL')))
            AND (lt.com_id = e.com_id OR
                 (lt.com_id IS NULL AND NOT EXISTS (
                     SELECT 1 FROM HRMS.leave_types local_lt

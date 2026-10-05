@@ -1,16 +1,27 @@
 # Leave allocation, request stages and deletion
 
-## Monthly leave allocation
+## Historic EL from the old ERP
+
+For yearly EL allocation from JOIN_DATE, imported carried-balance snapshots,
+leave taken, encashment and carry-forward reporting, see
+[EL_HISTORY_README.md](EL_HISTORY_README.md). Install the monthly allocation
+prerequisites below, then `INSTALL_EL_HISTORY.sql`. `Opening` from LEAVE_DATA
+is a balance snapshot; it is not added as another annual entitlement.
+LEAVE_DATA stays read-only; source copies, keys and adjustments are stored in
+separate HRMS reference and ledger tables.
+
+## Leave allocation: annual SL/CL and monthly EL
 
 Install `UPGRADE_MONTHLY_ALLOCATION.sql` as a SQL*Plus/SQLcl script connected
 as HRMS. It adds the employee/type/year unique constraint, supplies missing
-global SL/CL/EL/RL leave codes, installs `FN_LEAVE_ENTITLEMENT.sql` and
-`P_LEAVE_ALLOCATION.sql`, checks compilation, and runs the entitlement tests.
+global SL/CL/EL/RL leave codes, installs `FN_EL_ENTITLEMENT.sql`,
+`FN_LEAVE_ENTITLEMENT.sql`, `P_LEAVE_ALLOCATION.sql`, and
+`P_EL_LEAVE_ALLOCATION.sql`, checks compilation, and runs the entitlement tests.
 It does not recalculate existing employee allocations. Existing duplicate
 allocation rows must be reviewed first; the installer stops without deleting
 them. Oracle DDL commits, so finish unrelated transactions before installing.
 
-| Employee category | EL per full year | EL per completed month |
+| Employee category | EL per full year | EL monthly cap |
 | --- | ---: | ---: |
 | Confirmed, under 60 | 30 | 2.5 |
 | Contractual, probation, other employees under 60 | 24 | 2 |
@@ -42,27 +53,94 @@ T_EMP_TYP must already exist and contain the reference data before installing
 the allocation objects. The supplied data file also contains CREATE TABLE
 statements; do not run it against an existing T_EMP_TYP table.
 
-Allocation is cumulative through the inclusive `p_as_of_date`, defaulting to
-SYSDATE. It counts completed service months from the later of JOIN_DATE and
-January 1 of `p_year`, capped at the selected year's December 31. Partial
-months earn nothing. Month ends use Oracle ADD_MONTHS anniversaries. SL, CL
-and RL are prorated using the same completed months and stored to two decimal
-places. Six completed months give SL 7, CL 5, confirmed EL 15, other eligible
-EL 12, and eligible RL 7.5. Carry-forward between years is not included.
+EL uses its own calculation and allocation procedure. Call
+`P_EL_LEAVE_ALLOCATION(p_year, p_as_of_date)` for EL only;
+`P_LEAVE_ALLOCATION` now allocates SL/CL/RL only by default. The EL procedure
+uses the shared merge with `p_el_only => 1` and does not modify other leave types.
 
-`T_EMP_TYP.ID = 2` earns 2.5 EL per month from the confirmation
-date. Months ending before confirmation earn 2. For a confirmation partway
-through a month, the month uses the status on its final service day. A confirmed
-employee with no CONF_DATE uses 2.5 for all completed months. Historical runs
-use the current employee type and recorded CONF_DATE; employee type history is
-not reconstructed. A missing JOIN_DATE gives zero allocation. A missing DOB
-does not exclude EL; complete DOB records before relying on the age rule.
+EL counts service days separately in each calendar month through the inclusive
+`p_as_of_date` (default SYSDATE). The count starts at the later of JOIN_DATE
+and the first day of that month, including the joining day. Only months in
+`p_year` are included; dates after year end are capped at December 31.
+
+| Service days within the month | Confirmed (ID 2) | Probation/contractual (IDs 1/3) |
+| --- | ---: | ---: |
+| Before 12 days | 0 | 0 |
+| 12 through 23 days | 1 | 1 |
+| From 24 days, before monthly cap milestone | 2 | 2 |
+| 30 days in 30/31-day months, or 28/29 in February | 2.5 | 2 |
+
+Day 31 does not add another installment. In a leap year February reaches its
+confirmed cap on February 29, not February 28. An employee joining partway
+through a month receives only the milestones reached by their actual service
+days in that month; a month-end run does not grant them the full month by itself.
+Other valid employee type IDs retain the 24/year, 2/month rule.
+
+Every run sums the earned amount for each elapsed month and stores that total
+in the existing `LEAVE_ALLOCATION` row keyed by employee, EL type, and year.
+For a confirmed employee serving from January 1: January 12 = 1,
+January 24 = 2, January 30/31 = 2.5, February 12 = 3.5,
+February 24 = 4.5, and February 28/29 = 5. Nothing grants 30 days upfront.
+A full year reaches 30 for confirmed employees or 24 for the other eligible
+types. Reruns replace the cumulative total; they do not add the same earned
+leave again. The entitlement calculation itself excludes carry-forward; use
+the history module's V_EL_YEAR_BALANCE/V_EL_BALANCE for carried EL balances.
+
+SL and CL are allocated upfront for the selected year to every active employee
+type, including employees aged 60+. Employees who joined before January 15
+receive the full annual SL 14 and CL 10. This includes all prior-year employees,
+including those with more than one year of service, and January 1-14 joiners.
+January 15 is excluded from the full-quota cutoff.
+
+Employees joining January 15 or later receive the annual quota prorated by
+completed service months remaining from JOIN_DATE through December 31 of
+`p_year`. Oracle ADD_MONTHS anniversaries determine completed months; the end
+boundary is January 1 of the following year. Allocate this amount as soon as
+the employee joins, without waiting for those months to elapse. Allocation
+does not increase each month for SL/CL. Missing or future join dates receive
+zero. Amounts are rounded to two decimal places.
+
+| Join date in the selected year | Remaining months used | CL upfront | SL upfront |
+| --- | ---: | ---: | ---: |
+| Prior year or January 1-14 | 12 | 10 | 14 |
+| January 15 | 11 | 9.17 | 12.83 |
+| April 1 | 9 | 7.5 | 10.5 |
+| July 1 | 6 | 5 | 7 |
+| December 1 | 1 | 0.83 | 1.17 |
+
+RL retains its separate elapsed-completed-service-month proration from the
+later of JOIN_DATE and January 1 using Oracle ADD_MONTHS anniversaries. Partial
+months earn nothing for RL. Six completed months give eligible RL 7.5.
+
+`T_EMP_TYP.ID = 2` uses the confirmed EL cap when CONF_DATE is on or before
+the last service day being evaluated in that calendar month. Earlier months
+use the 2-day cap. A confirmed employee with no CONF_DATE uses the confirmed
+cap throughout. Historical runs use the current employee type and recorded
+CONF_DATE; employee type history is not reconstructed. A missing JOIN_DATE
+gives zero allocation. A missing DOB does not exclude EL; complete DOB records
+before relying on the age rule.
 
 On or after the 60th birthday, the selected year's EL allocation becomes zero,
 including EL earned earlier in that year, as requested. SL and CL continue.
 Historical years are evaluated at their own year end rather than today's age.
 
-Example using the default RL policy (contractual and age 60+):
+Example allocating EL only through February 12:
+
+```sql
+BEGIN
+    HRMS.p_el_leave_allocation(
+        p_year => 2026,
+        p_as_of_date => DATE '2026-02-12'
+    );
+END;
+/
+-- Confirmed employee serving from January 1: yearly ALLOCATED_DAYS = 3.5.
+-- Probation/contractual employee serving from January 1: ALLOCATED_DAYS = 3.
+-- COMMIT after reviewing, or ROLLBACK to undo.
+```
+
+Example allocating annual SL/CL upfront and elapsed RL using the default RL
+policy (contractual and age 60+):
 
 ```sql
 BEGIN
@@ -87,11 +165,12 @@ For RL for everyone, pass `p_rl_all_employees => 1`. Default restricted RL
 automatically identifies contractual employees using ID 3; no contractual
 type parameter is needed. Use the same RL policy argument for every run.
 
-Run allocation at each month end, or daily if the age-60 reset should happen
-on birthdays. Rerunning replaces the yearly cumulative amount rather than
-adding another installment. Calling with an earlier date deliberately
+Run EL allocation daily, or when a current balance is needed, to reflect the
+12/24-day milestones and age-60 reset. Run SL/CL allocation at year start and
+when employees join; rerunning `P_LEAVE_ALLOCATION` also updates elapsed RL.
+No scheduler job is created by the installer. Calling with an earlier date deliberately
 recalculates a smaller entitlement; it is not a posting history.
-`P_LEAVE_ALLOCATION` no longer commits internally: APEX/the calling job must
+Neither allocation procedure commits internally: APEX/the calling job must
 commit successful work. Only `STATUS = 1` employees and active leave codes
 participate. Existing consumption and requests are not changed. Allocated
 days are gross entitlement, so subtract consumption separately for balances.

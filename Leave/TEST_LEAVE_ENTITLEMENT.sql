@@ -37,8 +37,8 @@ BEGIN
     check_days('Casual annual EL', 24, DATE '2020-01-01', 'EL', p_type => 4);
     check_days('Confirmed first month', 2.5, DATE '2026-01-01', 'EL', DATE '2026-01-31');
     check_days('Probation first month', 2, DATE '2026-01-01', 'EL', DATE '2026-01-31', 1);
-    check_days('Six month CL', 5, DATE '2026-01-01', 'CL', DATE '2026-06-30');
-    check_days('Six month SL', 7, DATE '2026-01-01', 'SL', DATE '2026-06-30');
+    check_days('January joiner full CL by June', 10, DATE '2026-01-01', 'CL', DATE '2026-06-30');
+    check_days('January joiner full SL by June', 14, DATE '2026-01-01', 'SL', DATE '2026-06-30');
     check_days('Six month confirmed EL', 15, DATE '2026-01-01', 'EL', DATE '2026-06-30');
     check_days('Six month contractual EL', 12, DATE '2026-01-01', 'EL', DATE '2026-06-30', 3);
     check_days('Contractual annual RL', 15, DATE '2020-01-01', 'RL', p_type => 3);
@@ -52,20 +52,77 @@ BEGIN
     check_days('60+ retains CL', 10, DATE '2020-01-01', 'CL', p_dob => DATE '1960-01-01');
     check_days('60+ retains RL', 15, DATE '2020-01-01', 'RL', p_dob => DATE '1960-01-01');
     check_days('New joiner annual proration', 5, DATE '2026-07-01', 'CL');
-    check_days('Midmonth anniversary', 5, DATE '2026-01-15', 'CL', DATE '2026-07-14');
-    check_days('Incomplete first month', 0, DATE '2026-01-15', 'EL', DATE '2026-02-13');
-    check_days('January 30 to February end', 2.5, DATE '2026-01-30', 'EL', DATE '2026-02-27');
-    check_days('No month end drift', 2.5, DATE '2026-01-30', 'EL', DATE '2026-03-28');
+    check_days('January 15 remaining-year CL', 9.17, DATE '2026-01-15', 'CL', DATE '2026-07-14');
+    check_days('Partial join month plus February milestone', 2, DATE '2026-01-15', 'EL', DATE '2026-02-13');
+    check_days('Late January join earns February day 24 milestone', 2, DATE '2026-01-30', 'EL', DATE '2026-02-27');
+    check_days('Calendar months reset independently', 4.5, DATE '2026-01-30', 'EL', DATE '2026-03-28');
     check_days('Future join date', 0, DATE '2027-01-01', 'CL');
     check_days('Missing join date', 0, NULL, 'SL');
     check_days('Missing DOB still gets EL', 30, DATE '2020-01-01', 'EL', p_dob => NULL);
     check_days('Selected prior year', 30, DATE '2020-01-01', 'EL', p_year => 2025);
     check_days('Selected future year', 0, DATE '2020-01-01', 'EL', p_year => 2027);
     check_days('Confirmation during year', 27, DATE '2020-01-01', 'EL', p_conf => DATE '2026-07-01');
-    check_days('Monthly SL fraction', 1.17, DATE '2026-01-01', 'SL', DATE '2026-01-31');
-    check_days('Monthly CL fraction', 0.83, DATE '2026-01-01', 'CL', DATE '2026-01-31');
+    check_days('January joiner full SL upfront', 14, DATE '2026-01-01', 'SL', DATE '2026-01-01');
+    check_days('January joiner full CL upfront', 10, DATE '2026-01-01', 'CL', DATE '2026-01-01');
+
+    check_days('Prior-year employee full CL upfront', 10, DATE '2020-06-15', 'CL', DATE '2026-01-01');
+    check_days('Prior-year employee full SL upfront', 14, DATE '2020-06-15', 'SL', DATE '2026-01-01');
+    check_days('Recent prior-year joiner full CL', 10, DATE '2025-12-20', 'CL', DATE '2026-01-01');
+    check_days('Recent prior-year joiner full SL', 14, DATE '2025-12-20', 'SL', DATE '2026-01-01');
+    check_days('January 14 full CL', 10, DATE '2026-01-14', 'CL', DATE '2026-01-14');
+    check_days('January 14 full SL', 14, DATE '2026-01-14', 'SL', DATE '2026-01-14');
+    check_days('January 15 prorated CL upfront', 9.17, DATE '2026-01-15', 'CL', DATE '2026-01-15');
+    check_days('January 15 prorated SL upfront', 12.83, DATE '2026-01-15', 'SL', DATE '2026-01-15');
+    check_days('July joiner half CL upfront', 5, DATE '2026-07-01', 'CL', DATE '2026-07-01');
+    check_days('July joiner half SL upfront', 7, DATE '2026-07-01', 'SL', DATE '2026-07-01');
+    check_days('April joiner nine months CL', 7.5, DATE '2026-04-01', 'CL', DATE '2026-04-01');
+    check_days('April joiner nine months SL', 10.5, DATE '2026-04-01', 'SL', DATE '2026-04-01');
+    check_days('Future joiner gets no upfront CL', 0, DATE '2026-07-01', 'CL', DATE '2026-06-30');
+    check_days('Future joiner gets no upfront SL', 0, DATE '2026-07-01', 'SL', DATE '2026-06-30');
+    check_days('December 1 one month CL', 0.83, DATE '2026-12-01', 'CL', DATE '2026-12-01');
+    check_days('December 1 one month SL', 1.17, DATE '2026-12-01', 'SL', DATE '2026-12-01');
+    check_days('Selected prior year CL uses its year end', 5, DATE '2025-07-01', 'CL', p_year => 2025);
+    check_days('Selected future year CL not yet available', 0, DATE '2020-01-01', 'CL', p_year => 2027);
+
+    check_days('January before day 12', 0, DATE '2020-01-01', 'EL', DATE '2026-01-11');
+    check_days('January day 12', 1, DATE '2020-01-01', 'EL', DATE '2026-01-12');
+    check_days('January before day 24', 1, DATE '2020-01-01', 'EL', DATE '2026-01-23');
+    check_days('January day 24', 2, DATE '2020-01-01', 'EL', DATE '2026-01-24');
+    check_days('January before day 30', 2, DATE '2020-01-01', 'EL', DATE '2026-01-29');
+    check_days('January day 30', 2.5, DATE '2020-01-01', 'EL', DATE '2026-01-30');
+    check_days('January day 31 does not exceed cap', 2.5, DATE '2020-01-01', 'EL', DATE '2026-01-31');
+    check_days('February before day 12', 2.5, DATE '2020-01-01', 'EL', DATE '2026-02-11');
+    check_days('February day 12 cumulative', 3.5, DATE '2020-01-01', 'EL', DATE '2026-02-12');
+    check_days('February day 24 cumulative', 4.5, DATE '2020-01-01', 'EL', DATE '2026-02-24');
+    check_days('February before month end', 4.5, DATE '2020-01-01', 'EL', DATE '2026-02-27');
+    check_days('February 28 cumulative', 5, DATE '2020-01-01', 'EL', DATE '2026-02-28');
+    check_days('Leap February 28 not yet full', 4.5, DATE '2020-01-01', 'EL', DATE '2024-02-28', p_year => 2024);
+    check_days('Leap February 29 cumulative', 5, DATE '2020-01-01', 'EL', DATE '2024-02-29', p_year => 2024);
+    check_days('April before day 30', 9.5, DATE '2020-01-01', 'EL', DATE '2026-04-29');
+    check_days('April day 30', 10, DATE '2020-01-01', 'EL', DATE '2026-04-30');
+    check_days('Join date starts service day count', 0, DATE '2026-01-15', 'EL', DATE '2026-01-25');
+    check_days('Twelve days from join date', 1, DATE '2026-01-15', 'EL', DATE '2026-01-26');
+    check_days('Join month not given full quota', 1, DATE '2026-01-15', 'EL', DATE '2026-01-31');
+    check_days('Late join before first milestone', 0, DATE '2026-12-25', 'EL');
+    check_days('Repeated calculation is the same total', 5, DATE '2020-01-01', 'EL', DATE '2026-02-28');
+    check_days('Confirmation before February cap', 4, DATE '2020-01-01', 'EL', DATE '2026-02-27', p_conf => DATE '2026-02-28');
+    check_days('Confirmation on February cap', 4.5, DATE '2020-01-01', 'EL', DATE '2026-02-28', p_conf => DATE '2026-02-28');
+
+    FOR r IN (SELECT id FROM HRMS.t_emp_typ WHERE id IN (1, 3)) LOOP
+        check_days('Type ' || r.id || ' day 11', 0, DATE '2020-01-01', 'EL', DATE '2026-01-11', r.id);
+        check_days('Type ' || r.id || ' day 12', 1, DATE '2020-01-01', 'EL', DATE '2026-01-12', r.id);
+        check_days('Type ' || r.id || ' day 24', 2, DATE '2020-01-01', 'EL', DATE '2026-01-24', r.id);
+        check_days('Type ' || r.id || ' monthly cap', 2, DATE '2020-01-01', 'EL', DATE '2026-01-31', r.id);
+        check_days('Type ' || r.id || ' February day 12', 3, DATE '2020-01-01', 'EL', DATE '2026-02-12', r.id);
+        check_days('Type ' || r.id || ' February day 24', 4, DATE '2020-01-01', 'EL', DATE '2026-02-24', r.id);
+        check_days('Type ' || r.id || ' February cap', 4, DATE '2020-01-01', 'EL', DATE '2026-02-28', r.id);
+    END LOOP;
 
     FOR r IN (SELECT id FROM HRMS.t_emp_typ WHERE id IN (0, 1, 2, 3, 4)) LOOP
+        check_days('Type ' || r.id || ' CL upfront', 10, DATE '2026-01-14', 'CL', DATE '2026-01-14', r.id);
+        check_days('Type ' || r.id || ' SL upfront', 14, DATE '2026-01-14', 'SL', DATE '2026-01-14', r.id);
+        check_days('Type ' || r.id || ' partial CL upfront', 5, DATE '2026-07-01', 'CL', DATE '2026-07-01', r.id);
+        check_days('Type ' || r.id || ' partial SL upfront', 7, DATE '2026-07-01', 'SL', DATE '2026-07-01', r.id);
         check_days('Type ' || r.id || ' annual SL', 14, DATE '2020-01-01', 'SL', p_type => r.id);
         check_days('Type ' || r.id || ' annual CL', 10, DATE '2020-01-01', 'CL', p_type => r.id);
         check_days('Type ' || r.id || ' EL at 60+', 0, DATE '2020-01-01', 'EL',

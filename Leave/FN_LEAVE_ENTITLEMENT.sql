@@ -17,7 +17,6 @@ AS
     v_credit     DATE;
     v_code       VARCHAR2(5) := UPPER(TRIM(p_short_code));
     v_months     PLS_INTEGER := 0;
-    v_days       NUMBER := 0;
 BEGIN
     IF p_year IS NULL OR p_year <> TRUNC(p_year)
        OR p_year < 1 OR p_year > 9998 OR p_as_of_date IS NULL THEN
@@ -28,10 +27,16 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20053, 'RL eligibility must be 0 (restricted) or 1 (all employees).');
     END IF;
 
+    -- EL has calendar-month day milestones, separate from SL/CL/RL proration.
+    IF v_code = 'EL' THEN
+        RETURN HRMS.fn_el_entitlement(
+            p_year, p_as_of_date, p_join_date, p_dob, p_emp_type, p_conf_date);
+    END IF;
+
     v_year_start := TO_DATE(TO_CHAR(p_year, 'FM0000') || '0101', 'YYYYMMDD');
     v_year_end := ADD_MONTHS(v_year_start, 12);
-    -- The allocation date is inclusive; a period ending June 30 earns six
-    -- months for a January 1 join date. Never credit beyond the selected year.
+    -- The allocation date determines whether the employee has joined yet.
+    -- RL uses elapsed months; SL/CL allocate the selected year's entitlement.
     v_cutoff := LEAST(TRUNC(p_as_of_date) + 1, v_year_end);
     v_start := GREATEST(TRUNC(p_join_date), v_year_start);
 
@@ -39,11 +44,24 @@ BEGIN
         RETURN 0;
     END IF;
 
-    -- Age 60 overrides every employee type, including confirmed employees.
-    -- The requested policy clears EL entirely on the 60th birthday.
-    IF v_code = 'EL' AND p_dob IS NOT NULL
-       AND ADD_MONTHS(TRUNC(p_dob), 720) <= v_cutoff - 1 THEN
-        RETURN 0;
+    IF v_code IN ('SL', 'CL') THEN
+        -- Prior-year employees and January 1-14 joiners receive the full
+        -- annual quota upfront. January 15 is the first prorated join date.
+        IF TRUNC(p_join_date) < v_year_start + 14 THEN
+            v_months := 12;
+        ELSE
+            -- Prorate to the end of p_year, rather than waiting for months
+            -- to elapse as of the allocation date. Count completed months.
+            FOR i IN 1 .. 12 LOOP
+                EXIT WHEN ADD_MONTHS(v_start, i) > v_year_end;
+                v_months := v_months + 1;
+            END LOOP;
+        END IF;
+
+        IF v_code = 'SL' THEN
+            RETURN ROUND(14 * v_months / 12, 2);
+        END IF;
+        RETURN ROUND(10 * v_months / 12, 2);
     END IF;
 
     FOR i IN 1 .. 12 LOOP
@@ -52,21 +70,9 @@ BEGIN
         v_credit := ADD_MONTHS(v_start, i);
         EXIT WHEN v_credit > v_cutoff;
         v_months := v_months + 1;
-        IF v_code = 'EL' THEN
-            -- T_EMP_TYP data: 2 = Confirmed; 0/1/3/4 earn the other rate.
-            IF p_emp_type = 2
-               AND (p_conf_date IS NULL OR TRUNC(p_conf_date) < v_credit) THEN
-                v_days := v_days + 30 / 12;
-            ELSE
-                v_days := v_days + 24 / 12;
-            END IF;
-        END IF;
     END LOOP;
 
     CASE v_code
-        WHEN 'EL' THEN RETURN ROUND(v_days, 2);
-        WHEN 'SL' THEN RETURN ROUND(14 * v_months / 12, 2);
-        WHEN 'CL' THEN RETURN ROUND(10 * v_months / 12, 2);
         WHEN 'RL' THEN
             -- T_EMP_TYP.ID = 3 is Contractual. Age 60+ also qualifies.
             IF p_rl_all_employees = 1 OR p_emp_type = 3
