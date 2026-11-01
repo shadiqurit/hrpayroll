@@ -1,5 +1,23 @@
 # Leave allocation, request stages and deletion
 
+## RP / HOD / Plant Head / MD approval and HRD records
+
+For the company-wise flow using `V_LEAVE_ROLES`, see
+[APEX_COMPANY_APPROVAL.md](APEX_COMPANY_APPROVAL.md). The sequential route is
+`RP` → `HOD` → `PLANT_HEAD` → `MANAGING_DIRECTOR` → `LEAVE_RECORD`.
+Missing RP/HOD assignments are skipped. HOD starts with Plant Head; Plant
+Head starts with MD for their own leave. Only MD approval makes the request
+final; HRD then records it. All company roles come from `V_LEAVE_ROLES`.
+If RP, HOD, or Plant Head is the same employee, that person approves once at
+their highest assigned approval level before the next different approver acts.
+Install `INSTALL_COMPANY_APPROVAL.sql`, replace the old Page 420 history
+process, and wire the approval/recording buttons as described there. This
+replaces the legacy RP/HOD trigger and its hard-coded MD for this workflow.
+Run `CHECK_COMPANY_APPROVAL.sql` for diagnostics and `TEST_COMPANY_APPROVAL.sql`
+in a test HRMS database for route/state tests. The supplied HOD definition is
+saved in `Table/hod.sql`; only HOD assignments with `STATUS = 'ACTIVE'`
+(case-insensitive, trimmed) participate in routing.
+
 ## Historic EL from the old ERP
 
 For yearly EL allocation from JOIN_DATE, imported carried-balance snapshots,
@@ -218,13 +236,19 @@ For a new database, the table definitions in `Leave/LEAVE_REQUEST.sql` and
 `Table/leave_request.sql` already include the column and check constraint.
 After creating the tables, install `TRG_LEAVE_REQUEST_STATUS.sql`,
 `TRG_LEAVE_REQUEST_DELETE.sql`,
-`DELETE_LEAVE_REQUEST.sql`, and the two leave views. Do not run the upgrade
+`DELETE_LEAVE_REQUEST.sql`, `V_LEAVE_APPROVAL_STEPS.sql`, and the two leave views.
+Do not run the upgrade
 against a table that already has the new column.
 
 Both `V_LEAVE_REPORT` and `V_LEAVE_APPROVAL` expose `REQUEST_STATUS` and
 `REQUEST_STATUS_TEXT` (`Draft`, `Forwarded`, `Final`).
 
 ## APEX save, forward, and final approval
+
+When using the company-wise workflow, use the package calls in
+[APEX_COMPANY_APPROVAL.md](APEX_COMPANY_APPROVAL.md) for Forward, Approve,
+Reject, and Record. Direct status updates described in this older integration
+section do not create or advance its approval history.
 
 For a new request, omit `REQUEST_STATUS` from the insert to use its default
 `D`. Do not reset it to `D` every time an existing request is saved. Display it

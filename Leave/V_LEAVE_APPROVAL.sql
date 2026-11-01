@@ -24,9 +24,19 @@ AS
                WHEN 'D' THEN 'Draft'
                WHEN 'F' THEN 'Forwarded'
                WHEN 'A' THEN 'Final'
-           END AS REQUEST_STATUS_TEXT
+           END AS REQUEST_STATUS_TEXT,
+           mh.com_id,
+           mh.step_no,
+           CASE mh.approver_level
+               WHEN 'RP' THEN 'Reporting Person'
+               WHEN 'HOD' THEN 'Head of Department'
+               WHEN 'PLANT_HEAD' THEN 'Plant Head'
+               WHEN 'MANAGING_DIRECTOR' THEN 'Managing Director'
+               WHEN 'LEAVE_RECORD' THEN 'HRD Record Keeping'
+               ELSE mh.approver_level
+           END AS approver_level_text
       FROM LEAVE_REQUEST      ma,
-           leave_app_history  mh,
+           v_leave_approval_steps mh,
            v_emp              v,
            v_emp              ap
      WHERE     ma.leave_id = mh.leave_id

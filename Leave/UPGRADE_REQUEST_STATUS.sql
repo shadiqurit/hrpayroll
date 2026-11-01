@@ -27,6 +27,7 @@ COMMENT ON COLUMN HRMS.leave_request.request_status
 @@TRG_LEAVE_REQUEST_DELETE.sql
 @@DELETE_LEAVE_REQUEST.sql
 @@V_LEAVE_REPORT.sql
+@@V_LEAVE_APPROVAL_STEPS.sql
 @@V_LEAVE_APPROVAL.sql
 
 -- CREATE OR REPLACE can leave an invalid object without stopping SQL*Plus.
@@ -39,7 +40,7 @@ BEGIN
      WHERE owner = 'HRMS'
        AND name IN ('TRG_LEAVE_REQUEST_STATUS', 'TRG_LEAVE_REQUEST_DELETE',
                     'DELETE_LEAVE_REQUEST',
-                    'V_LEAVE_REPORT', 'V_LEAVE_APPROVAL')
+                    'V_LEAVE_REPORT', 'V_LEAVE_APPROVAL_STEPS', 'V_LEAVE_APPROVAL')
        AND attribute = 'ERROR';
 
     IF v_errors > 0 THEN
