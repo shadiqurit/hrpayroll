@@ -32,7 +32,7 @@ Shared-role examples (`A` and `B` are different employees):
 
 One approval completes all shared approval roles for that employee. It then
 moves to the next different approver; the request stays forwarded until MD
-approval. Shared roles are combined when Forward builds a new route. Existing
+approval. Shared roles are combined when Apply/Forward builds a new route. Existing
 routes with repeated assignments require review and are not silently rewritten.
 
 ## Sources and existing tables
@@ -65,7 +65,9 @@ allow a shared MD/HRD employee to serve multiple companies. Missing required
 roles, duplicate assignments, inactive people, and invalid RP company mappings
 stop submission instead of bypassing approvals.
 
-The route is saved when Forward is pressed. A pending assignment is checked
+The route is saved when the default form's Create/Save (`CREATE`/`SAVE`),
+Apply (`APPLY`), or Forward (`FORWARD`) is pressed. Save submits an existing
+draft too; it is not a draft-only button in this integration. A pending assignment is checked
 again against its current source when acting. If roles or the applicant's
 company change mid-route, administrator review/reassignment is required.
 
@@ -103,28 +105,55 @@ by another schema; synonyms alone do not supply PL/SQL compilation privileges.
 
 ## APEX application items
 
-Keep existing `G_COM_ID` and define a protected `G_EMP_ID` holding the logged-in
-user's numeric `EMPLOYEES.ID`. Substitute your existing authenticated employee
-item name if different. Populate it server-side through the application's
-existing login-to-employee mapping. Never derive the actor from `P420_EMPID`
-or `P422_APPROVER_ID`. Protect both application items against browser assignment
-and authorize company switching server-side. Retain page/process authorization.
+Use the application's existing global items with these meanings:
+
+| Item | Meaning | Use in this workflow |
+| --- | --- | --- |
+| `G_EMP_ID` | Character employee code / IPI code | Display or code lookup only |
+| `USER_ID` | Numeric `EMPLOYEES.ID` of the authenticated employee | Applicant ownership, approval actor, inbox filter |
+| `G_COM_ID` | Selected authorized company ID | Company scope |
+
+Populate these server-side through the existing login-to-employee mapping.
+Do not convert `G_EMP_ID` to a number or compare it with employee/approver IDs.
+Never derive the actor from `P420_EMPID` or `P422_APPROVER_ID`. Protect the
+application items against browser assignment and authorize company switching
+server-side. Retain page/process authorization.
+
+`LEAVE_REQUEST.EMPID`, `LEAVE_APP_HISTORY.APPROVER_ID`, and `p_actor_id` use
+numeric `EMPLOYEES.ID`. For a new own-leave request, default `P420_EMPID` to
+`:USER_ID` server-side; if it has an LOV, its return value must be
+`EMPLOYEES.ID`. The label can display the character employee/IPI code.
 
 The package is intended for trusted APEX server processes. Do not grant its
 actor-parameter API to untrusted database users. The APEX snippets recheck the
 stored request and assignment, so hidden approver/page item values do not
 authorize an action.
 
-## Page 420: Save and Forward
+## Page 420: default LEAVE_REQUEST form and report
 
-1. Remove the old approval-history insert process. Save creates a draft;
-   Forward creates the complete route once.
-2. Keep form DML for `CREATE`, `SAVE`, `FORWARD`. Return the generated primary
+For a step-by-step Bengali Page Designer guide, see
+[PAGE_420_SETUP_BN.md](PAGE_420_SETUP_BN.md). The default table form saves only
+`LEAVE_REQUEST`; it needs a separate Execute Code process after form DML to
+create the route in `LEAVE_APP_HISTORY`.
+
+1. Replace the old approval-history insert process. Create and Save both save
+   and submit the complete route in the same APEX submit. Forward can also
+   submit an existing draft.
+2. Keep form DML for `CREATE`, `APPLY`, `SAVE`, `FORWARD`. Return the generated primary
    key to `P420_LEAVE_ID`. New rows use the existing defaults `P`/`D`.
    Make both status items query-only and omit them from form DML; the package
    controls workflow status. Make the applicant display-only after loading.
-3. Add a Submit button named `FORWARD`, with normal form validations enabled.
-4. Add this guard **before form DML**, only for `CREATE`, `SAVE`, `FORWARD`:
+3. Keep the default Submit buttons `CREATE` (Database Action = SQL INSERT
+   action, visible when the key is null) and `SAVE` (SQL UPDATE action,
+   visible when the key is not null), with normal validations enabled.
+   The labels may say Apply/Submit. No button rename is required. A custom
+   `APPLY`/`FORWARD` button must also have the correct INSERT or UPDATE
+   Database Action when it needs to save form changes. Button **Name**
+   determines the request; changing the label does not change the request.
+   On form DML set **Return Primary Key(s) after Insert = Yes**. Map the
+   form's primary key `LEAVE_ID` to `P420_LEAVE_ID`; do not use MAX(LEAVE_ID).
+4. Add `P_420 validate draft.sql` **before form DML**, only for `CREATE`, `APPLY`,
+   `SAVE`, `FORWARD`. The file contains this guard:
 
 ```sql
 DECLARE
@@ -134,7 +163,7 @@ DECLARE
     l_status VARCHAR2(10);
 BEGIN
     SELECT COUNT(*) INTO l_count FROM employees
-     WHERE id = :G_EMP_ID AND status = 1 AND com_id = :G_COM_ID
+     WHERE id = :USER_ID AND status = 1 AND com_id = :G_COM_ID
        AND id = :P420_EMPID;
     IF l_count <> 1 THEN
         RAISE_APPLICATION_ERROR(-20827, 'Applicant must be the logged-in employee in this company.');
@@ -143,7 +172,7 @@ BEGIN
         SELECT empid, request_status, leave_status
           INTO l_empid, l_stage, l_status FROM leave_request
          WHERE leave_id = :P420_LEAVE_ID FOR UPDATE;
-        IF l_empid <> TO_NUMBER(:G_EMP_ID) OR NVL(l_stage, '#') <> 'D'
+        IF l_empid <> TO_NUMBER(:USER_ID) OR NVL(l_stage, '#') <> 'D'
            OR NVL(l_status, '#') NOT IN ('P', 'D') THEN
             RAISE_APPLICATION_ERROR(-20828, 'Only your own draft request can be edited.');
         END IF;
@@ -151,10 +180,42 @@ BEGIN
 END;
 ```
 
-5. After form DML, run `P_420 insert data.sql`, **When Button Pressed =
-   FORWARD**. It validates the saved applicant/company, builds the route,
+5. After form DML and before any success branch, run `P_420 insert data.sql`.
+   Clear **When Button Pressed** (do not leave it set to FORWARD). Set its
+   server-side condition type to **PL/SQL Expression** with:
+   `apex_application.g_request IN ('CREATE', 'SAVE', 'APPLY', 'FORWARD')`.
+   It validates the saved applicant/company, builds the route,
    marks the first included step `PENDING` and all later steps `WAITING`,
-   then changes the request to `F`/`F`.
+   then changes the request to `F`/`F`. Do not swallow errors or commit between
+   form DML and this process. A missing role must fail the submit visibly.
+
+### Application saved but missing from the approval inbox
+
+The previous Page 420 process ran only for `FORWARD`. Pressing Apply/CREATE or
+SAVE therefore left `P`/`D` with no history, which the approval inbox correctly
+excluded. Install the Page 420 process settings above; replacing only the
+PL/SQL body while keeping **When Button Pressed = FORWARD** will not fix it.
+No database package change is needed for this page integration fix.
+
+For an already saved draft, reopen it as its applicant and press Save, Apply, or
+Forward once. Do not update its statuses directly: that does not build a route.
+Existing forwarded/approved applications must not be resubmitted.
+
+Verify a specific application after Apply, using its actual ID:
+
+```sql
+SELECT lr.leave_id, lr.empid, lr.leave_status, lr.request_status,
+       h.approver_level, h.approver_id, h.approval_status, h.com_id
+  FROM leave_request lr
+  LEFT JOIN v_leave_approval_steps h ON h.leave_id = lr.leave_id
+ WHERE lr.leave_id = :leave_id
+ ORDER BY h.step_no;
+```
+
+Expected: request `F`/`F`, one first approver `PENDING`, and later steps
+`WAITING`. Sign in as that first approver with the same authorized company;
+the Page 422 inbox below should show the request. Saving an existing draft
+must produce the same route. Reapplying a forwarded request must fail.
 
 This employee form handles the logged-in employee's own applications. HR entry
 on behalf of another employee needs its own explicitly authorized server process.
@@ -162,13 +223,19 @@ on behalf of another employee needs its own explicitly authorized server process
 ## Page 422: approvals and HRD recording
 
 Use `P422_LEAVE_ID` as a protected selected request ID. Add optional
-`P422_COMMENTS` with a 300-byte limit. Approver ID/level/history ID and status
-items are display-only. Keep report escaping enabled for names and remarks.
+`P422_COMMENTS` with a 300-byte limit. Approver ID/level/history ID are
+display-only. `P422_APPROVAL_STATUS` is an editable action select list with
+return values `APPROVE` and `REJECT`; Source = Null, no database column mapping
+or stored-status default. Stored history statuses remain `PENDING`, `APPROVED`,
+`REJECTED`, etc., and are updated only by the package. Keep report escaping
+enabled for names and remarks. For exact settings, see
+[PAGE_422_SETUP_BN.md](PAGE_422_SETUP_BN.md).
 
-Create Submit buttons named `APPROVE`, `REJECT`, and `RECORD`. Replace the old
+Create a Submit button named `SUBMIT_ACTION` for the selected approval action,
+and a separate `RECORD` button for HRD. Database Action = None for both. Replace the old
 "Update the next" process with `P_422 Update the next.sql`. Run it After Submit
 with a PL/SQL Expression server-side condition:
-`apex_application.g_request IN ('APPROVE', 'REJECT', 'RECORD')`. Exclude all three
+`apex_application.g_request IN ('SUBMIT_ACTION', 'RECORD')`. Exclude both
 from normal form DML, and remove other direct status/history update processes.
 Use one action process so each submit acts once. Let errors reach APEX; do not
 use `WHEN OTHERS THEN NULL` or commit before an action succeeds.
@@ -177,7 +244,7 @@ Approval inbox query (RP, HOD, Plant Head, MD):
 
 ```sql
 SELECT a.* FROM v_leave_approval a
- WHERE a.com_id = :G_COM_ID AND a.approver_id = :G_EMP_ID
+ WHERE a.com_id = :G_COM_ID AND a.approver_id = :USER_ID
    AND a.approval_status = 'PENDING'
    AND a.approver_level IN ('RP', 'HOD', 'PLANT_HEAD', 'MANAGING_DIRECTOR')
    AND a.leave_status = 'F' AND a.request_status = 'F'
@@ -185,7 +252,7 @@ SELECT a.* FROM v_leave_approval a
  ORDER BY a.leave_id, a.step_no;
 ```
 
-Use this query for the APPROVE/REJECT button server-side row condition too,
+Use this query for the SUBMIT_ACTION button and action select list server-side row condition too,
 with `a.leave_id = :P422_LEAVE_ID` and no ORDER BY. The package locks the request,
 checks the actor/current assignment and step order again, and allows only
 the single current step to act. Intermediate approval stays `F`/`F`. MD's
@@ -196,7 +263,7 @@ HRD inbox and RECORD button condition:
 
 ```sql
 SELECT a.* FROM v_leave_approval a
- WHERE a.com_id = :G_COM_ID AND a.approver_id = :G_EMP_ID
+ WHERE a.com_id = :G_COM_ID AND a.approver_id = :USER_ID
    AND a.approver_level = 'LEAVE_RECORD' AND a.approval_status = 'PENDING'
    AND a.leave_status = 'A' AND a.request_status = 'A'
    AND EXISTS (SELECT 1 FROM employees e WHERE e.id = a.empid AND e.com_id = :G_COM_ID)

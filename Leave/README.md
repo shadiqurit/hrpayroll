@@ -11,8 +11,21 @@ final; HRD then records it. All company roles come from `V_LEAVE_ROLES`.
 If RP, HOD, or Plant Head is the same employee, that person approves once at
 their highest assigned approval level before the next different approver acts.
 Install `INSTALL_COMPANY_APPROVAL.sql`, replace the old Page 420 history
-process, and wire the approval/recording buttons as described there. This
+process, and wire the approval/recording buttons as described there. Page 420
+Apply (`CREATE`/`APPLY`) and the default form's `SAVE` save and submit the route.
+Clear the submission process's old FORWARD-only button condition and use the
+documented request condition so Apply actually runs it. Existing saved drafts
+can be opened by their applicant and submitted with Save, Apply, or Forward.
+For exact default form settings and process order, see
+[PAGE_420_SETUP_BN.md](PAGE_420_SETUP_BN.md). This
 replaces the legacy RP/HOD trigger and its hard-coded MD for this workflow.
+Use `:USER_ID` (numeric `EMPLOYEES.ID`) for actors and approval inbox filters.
+`:G_EMP_ID` is the character employee/IPI code, not a numeric workflow ID.
+For the Page 422 APPROVE/REJECT select list and Submit button, see
+[PAGE_422_SETUP_BN.md](PAGE_422_SETUP_BN.md).
+For the Page 419 applicant report's current pending person's name and role,
+use [page_419_leave_request_report.sql](page_419_leave_request_report.sql)
+and [PAGE_419_SETUP_BN.md](PAGE_419_SETUP_BN.md).
 Run `CHECK_COMPANY_APPROVAL.sql` for diagnostics and `TEST_COMPANY_APPROVAL.sql`
 in a test HRMS database for route/state tests. The supplied HOD definition is
 saved in `Table/hod.sql`; only HOD assignments with `STATUS = 'ACTIVE'`

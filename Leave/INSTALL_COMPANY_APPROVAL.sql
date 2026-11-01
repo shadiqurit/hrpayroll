@@ -62,7 +62,8 @@ BEGIN
 END;
 /
 
--- Company routing now runs only on Forward, not when inserting a draft.
+-- Company routing runs in the Page 420 submit process (Apply/Forward),
+-- not in a database INSERT trigger when saving a draft.
 BEGIN
     EXECUTE IMMEDIATE 'DROP TRIGGER HRMS.trg_leave_request_insert';
 EXCEPTION

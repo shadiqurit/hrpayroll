@@ -1,25 +1,36 @@
 -- Page 422: replace the old "Update the next" process with this block.
 -- Install INSTALL_COMPANY_APPROVAL.sql and update Page 420 first.
--- Submit buttons: APPROVE, REJECT, RECORD.
+-- P422_APPROVAL_STATUS: user action select list, APPROVE / REJECT return values.
+-- Source = Null; no database column mapping/default. It is not stored status.
+-- Submit buttons: SUBMIT_ACTION (selected approval action), RECORD (HRD only).
 -- After Submit, server-side condition type PL/SQL Expression:
--- apex_application.g_request IN ('APPROVE', 'REJECT', 'RECORD')
+-- apex_application.g_request IN ('SUBMIT_ACTION', 'RECORD')
 -- Exclude these requests from normal form DML.
--- G_EMP_ID is the protected, server-established authenticated EMPLOYEES.ID.
+-- USER_ID is the protected, server-established numeric EMPLOYEES.ID.
+-- G_EMP_ID is a character employee/IPI code, not an approver/actor ID.
 -- Add P422_COMMENTS (optional; maximum 300 bytes).
--- P422_APPROVER_ID/LEVEL/DID/APPROVAL_STATUS are display-only; never trust them
--- to decide who may act. The package checks the stored pending assignment.
+-- P422_APPROVER_ID/LEVEL/DID are display-only. The selected action grants no
+-- authority: the package checks the actor and stored pending assignment.
 -- RP/HOD/PLANT_HEAD approvals activate the next step and retain F/F.
 -- MD approval sets A/A and activates HRD; RECORD completes HRD's audit step.
 DECLARE
-    l_action VARCHAR2(20) := UPPER(apex_application.g_request);
+    l_action VARCHAR2(20);
 BEGIN
-    IF l_action IS NULL OR l_action NOT IN ('APPROVE', 'REJECT', 'RECORD') THEN
-        RAISE_APPLICATION_ERROR(-20810, 'Use APPROVE, REJECT, or RECORD.');
+    IF apex_application.g_request = 'SUBMIT_ACTION' THEN
+        IF UPPER(TRIM(:P422_APPROVAL_STATUS)) IS NULL
+           OR UPPER(TRIM(:P422_APPROVAL_STATUS)) NOT IN ('APPROVE', 'REJECT') THEN
+            RAISE_APPLICATION_ERROR(-20810, 'Select APPROVE or REJECT.');
+        END IF;
+        l_action := UPPER(TRIM(:P422_APPROVAL_STATUS));
+    ELSIF apex_application.g_request = 'RECORD' THEN
+        l_action := 'RECORD';
+    ELSE
+        RAISE_APPLICATION_ERROR(-20810, 'Use SUBMIT_ACTION or RECORD.');
     END IF;
     HRMS.pkg_leave_approval.take_action(
         p_leave_id   => :P422_LEAVE_ID,
         p_company_id => :G_COM_ID,
-        p_actor_id   => :G_EMP_ID,
+        p_actor_id   => :USER_ID,
         p_action     => l_action,
         p_comments   => :P422_COMMENTS
     );
