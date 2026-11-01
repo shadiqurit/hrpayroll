@@ -1,0 +1,34 @@
+﻿{
+  "recordset": [
+  {
+    "ROLE_CODE":"MANAGING_DIRECTOR",
+    "ROLE_NAME":"Managing Director",
+    "ID":222000790,
+    "EMP_ID":"IPI-000790",
+    "EMPLOYEE_NAME":"PROF. DR. CHOUDHURY MAHMOOD HASAN",
+    "ACTIVE_YN":"Y",
+    "COMPANY_ID":3,
+    "COMPANY_CODE":"API"
+  },
+  {
+    "ROLE_CODE":"PLANT_HEAD",
+    "ROLE_NAME":"Factory/Plants Head",
+    "ID":191008240,
+    "EMP_ID":"IPI-008240",
+    "EMPLOYEE_NAME":"MD. SHAMSUL ALAM",
+    "ACTIVE_YN":"Y",
+    "COMPANY_ID":3,
+    "COMPANY_CODE":"API"
+  },
+  {
+    "ROLE_CODE":"LEAVE_RECORD",
+    "ROLE_NAME":"Leave Record Keeper By HRD",
+    "ID":200008613,
+    "EMP_ID":"IPI-008613",
+    "EMPLOYEE_NAME":"MD. NUR HOSSEN",
+    "ACTIVE_YN":"Y",
+    "COMPANY_ID":3,
+    "COMPANY_CODE":"API"
+  }
+  ]
+}
