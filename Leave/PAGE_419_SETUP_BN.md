@@ -10,7 +10,7 @@ G_EMP_ID character employee/IPI code।
 
 | Column | Heading | কী দেখাবে |
 | --- | --- | --- |
-| PENDING_WITH | Pending With | বর্তমান pending approver-এর নাম |
+| PENDING_WITH | Pending With | বর্তমান pending approver বা eligible alternative approvers-এর নাম |
 | PENDING_ROLE | Pending Role | RP / HOD / Plant Head / Managing Director / HRD Record Keeping |
 | CURRENT_STAGE | Current Stage | Pending Approval / Pending HRD Recording / Approved / Rejected / Not Submitted |
 
@@ -19,13 +19,16 @@ G_EMP_ID character employee/IPI code।
 বর্তমান assignee আসে LEAVE_APP_HISTORY-এর PENDING row থেকে; current role
 setup থেকে পুনরায় অনুমান করা হয় না। WAITING rows দেখাবে না।
 
-RP approve করলে পরের PENDING assignee-এর নাম দেখাবে। MD approve করার পরে
+RP recommend করলে HOD ও Plant Head-এর মতো eligible final candidates-এর নাম
+একসঙ্গে দেখাবে; যেকোনো একজন approve করলেই final। HOD-এর নিজের আবেদনে
+Plant Head/MD, Plant Head-এর আবেদনে MD দেখাবে। Final approval-এর পরে
 request Approved থাকবে, কিন্তু CURRENT_STAGE = Pending HRD Recording এবং
 HRD recorder-এর নাম/role দেখাবে। Record হয়ে গেলে stage Approved এবং pending
 columns blank হবে। Draft/rejected request-এর pending columns-ও blank থাকবে।
 
-একাধিক PENDING history থাকলে সব নাম/role দেখাবে এবং stage-এ review message
-আসবে; request report-এ একাধিক row হবে না। Forwarded request-এ pending step
+একাধিক distinct final candidate PENDING থাকা স্বাভাবিক; stage Pending Approval
+থাকবে। একই person/role duplicate বা RP এবং final group একসঙ্গে pending হলে
+review message আসবে। Request report-এ একাধিক row হবে না। Forwarded request-এ pending step
 না থাকলে Approval Route Requires Review দেখাবে।
 
 নতুন columns Page Designer-এ synchronize হয়েছে কি না দেখুন। Interactive

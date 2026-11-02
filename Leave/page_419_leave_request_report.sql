@@ -4,6 +4,15 @@
 WITH pending_step AS (
     SELECT h.leave_id,
            COUNT(*) AS pending_count,
+           COUNT(DISTINCT h.approver_id) AS pending_people,
+           COUNT(DISTINCT h.approver_level) AS pending_roles,
+           COUNT(DISTINCT CASE h.approver_level
+               WHEN 'RP' THEN 10
+               WHEN 'HOD' THEN 20
+               WHEN 'PLANT_HEAD' THEN 20
+               WHEN 'MANAGING_DIRECTOR' THEN 20
+               WHEN 'LEAVE_RECORD' THEN 50
+               ELSE -1 END) AS pending_groups,
            LISTAGG(
                NVL(TRIM(e.f_name || ' ' || e.l_name),
                    'Employee ID ' || TO_CHAR(h.approver_id)), ', ')
@@ -52,7 +61,9 @@ SELECT lr.leave_id,
        CASE
            WHEN lr.leave_status = 'R' THEN 'Rejected'
            WHEN lr.leave_status IN ('P', 'D') THEN 'Not Submitted'
-           WHEN p.pending_count > 1 THEN 'Review: Multiple Pending Steps'
+           WHEN p.pending_count > p.pending_people
+             OR p.pending_count > p.pending_roles
+             OR p.pending_groups > 1 THEN 'Review: Invalid Pending Assignments'
            WHEN lr.leave_status = 'A' AND p.leave_id IS NOT NULL
                THEN 'Pending HRD Recording'
            WHEN lr.leave_status = 'A' THEN 'Approved'

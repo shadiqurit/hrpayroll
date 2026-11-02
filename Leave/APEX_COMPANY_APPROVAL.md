@@ -1,45 +1,48 @@
-# Leave application, sequential approvals, and HRD records
+# Leave application, one final approval, and HRD records
 
-The approval order is **RP → HOD → PLANT_HEAD → MANAGING_DIRECTOR →
-LEAVE_RECORD**. RP and HOD are optional; Plant Head and MD are company-wise
-approvers. HRD records the approved leave and does not approve it again.
+The workflow is **optional RP recommendation → ONE eligible higher-tier
+approval → HRD recording**. Final candidates in the same group are alternatives,
+not a sequence. The first final approval resolves the request and cancels the
+other candidate's unused step. Rejection also resolves the request and cancels
+all other open steps. HRD records the result after a final approval.
 
 | Applicant/setup | Route |
 | --- | --- |
-| Employee with RP and HOD | RP → HOD → Plant Head → MD → HRD record |
-| Employee without RP | HOD → Plant Head → MD → HRD record |
-| Employee without HOD | RP → Plant Head → MD → HRD record |
-| Employee without RP or HOD | Plant Head → MD → HRD record |
-| HOD applying for own leave | Plant Head → MD → HRD record |
+| Employee with distinct RP and HOD | RP recommendation → HOD OR Plant Head → HRD record |
+| Employee without RP | HOD OR Plant Head → HRD record |
+| Employee without HOD | Optional RP recommendation → Plant Head → HRD record |
+| Employee without RP or HOD | Plant Head → HRD record |
+| HOD applying for own leave | Plant Head OR MD → HRD record |
 | Plant Head applying for own leave | MD → HRD record |
 
-The confirmed sequence includes HOD after RP when both are assigned.
-Missing RP/HOD assignments are omitted. Applicants never
-approve their own leave; heads start above their own role. If one employee
-holds multiple approval roles, retain their highest role so they approve
-once. The HRD recording action remains separate even if that employee also
-holds an approval role. MD's own leave is refused because a higher approver
-has not been specified; it is never automatically approved.
+An ordinary employee's leave never requires MD approval. A distinct RP must
+recommend first; this does not make the request final. Both final candidates
+then see the request, and either one can decide. HOD/Plant Head applicants skip
+RP and subordinate roles. Active HOD identity is recognized in any department
+assignment in the company, not only the applicant's own employee department.
+Applicants never approve their own leave. MD's own leave still needs a separately
+configured higher authority; it is not automatically approved.
 
 Shared-role examples (`A` and `B` are different employees):
 
 | Assignments | Approval sequence before HRD recording |
 | --- | --- |
-| RP=A, HOD=A, Plant Head=B | A once as HOD → B as Plant Head → MD |
-| RP=A, HOD=B, Plant Head=B | A as RP → B once as Plant Head → MD |
-| RP=A, HOD=B, Plant Head=A | B as HOD → A once as Plant Head → MD |
-| RP=A, HOD=A, Plant Head=A | A once as Plant Head → MD |
+| RP=A, HOD=A, Plant Head=B | A as HOD OR B as Plant Head; one final approval |
+| RP=A, HOD=B, Plant Head=B | A recommends → B once as Plant Head |
+| RP=A, HOD=B, Plant Head=A | B as HOD OR A as Plant Head; one final approval |
+| RP=A, HOD=A, Plant Head=A | A once as Plant Head |
 
-One approval completes all shared approval roles for that employee. It then
-moves to the next different approver; the request stays forwarded until MD
-approval. Shared roles are combined when Apply/Forward builds a new route. Existing
-routes with repeated assignments require review and are not silently rewritten.
+If RP is also an eligible final candidate, omit the separate recommendation
+and let that person act once at their final role. Final candidates held by the
+same employee collapse to their highest role. HRD recording remains separate
+even when that employee also approved. Shared roles are combined on submission.
 
 ## Sources and existing tables
 
 No new columns are needed in the supplied `LEAVE_REQUEST` and
 `LEAVE_APP_HISTORY` tables. `V_LEAVE_APPROVAL_STEPS` derives order from
-`APPROVER_LEVEL`: RP=10, HOD=20, Plant Head=30, MD=40, HRD=50.
+`APPROVER_LEVEL`: RP=10, HOD/Plant Head/MD=20, HRD=50. STEP_NO is a workflow
+group, so multiple final candidates legitimately share 20.
 
 - RP: `EMP_RP.EMP_ID`, `REP_PERSON_ID`; active STATUS accepts `ACTIVE`, `1`,
   or `Y`. The table export defaults to `ACTIVE`, while old leave code used `1`.
@@ -60,10 +63,11 @@ cannot be approved by the former assignee.
 
 Every numeric person ID above is `EMPLOYEES.ID`, not the displayed employee
 code `EMPLOYEES.EMP_ID`. RP and HOD must be active in the applicant's company.
-Company roles must resolve to one active employee each; explicit assignments
-allow a shared MD/HRD employee to serve multiple companies. Missing required
-roles, duplicate assignments, inactive people, and invalid RP company mappings
-stop submission instead of bypassing approvals.
+Configured company roles must resolve to one active employee each; explicit assignments
+allow a shared MD/HRD employee to serve multiple companies. HRD and at least one
+eligible final candidate are required. An ordinary employee can submit without
+an MD assignment. Missing required candidates, duplicate assignments, inactive
+people, and invalid RP company mappings stop submission.
 
 The route is saved when the default form's Create/Save (`CREATE`/`SAVE`),
 Apply (`APPLY`), or Forward (`FORWARD`) is pressed. Save submits an existing
@@ -87,13 +91,16 @@ The supplied `REQUEST_STATUS` column already exists, so **do not rerun
 1. Checks required source columns and duplicate history IDs.
 2. Installs sequence-backed ID triggers for both request and history.
 3. Adds a primary key on history ID if absent, reinstalls stage synchronization,
-   and installs the ordered workflow package and views.
+   and installs the grouped workflow package and views.
 4. Refreshes `V_EMP_LEAVE_TOTAL` to sum all approved requests in a start month.
 5. Removes the old insert trigger that created RP/HOD history on draft saves.
 
 Oracle DDL commits. Existing applications and audit history are preserved;
-old pending routes are not silently converted. Review them using the diagnostic
-script before any controlled migration. Completed history remains readable.
+old pending routes are not silently converted. The package matches the saved
+candidate set and grouped states to the current policy; incompatible old routes
+raise -20820. Review them using the diagnostic script before any controlled
+migration; do not delete audit history or reset statuses to force a resubmit.
+Compatible Plant Head → MD routes can continue. Completed history remains readable.
 Existing sequences are retained, never reset. Do not manually allocate positive
 IDs beyond their sequence values without a DBA resynchronizing the sequence.
 
@@ -185,7 +192,9 @@ END;
    server-side condition type to **PL/SQL Expression** with:
    `apex_application.g_request IN ('CREATE', 'SAVE', 'APPLY', 'FORWARD')`.
    It validates the saved applicant/company, builds the route,
-   marks the first included step `PENDING` and all later steps `WAITING`,
+   marks a distinct RP `PENDING` with finals `WAITING`, or marks all eligible
+   final candidates `PENDING` when no distinct RP recommendation is required.
+   HRD starts `WAITING`,
    then changes the request to `F`/`F`. Do not swallow errors or commit between
    form DML and this process. A missing role must fail the submit visibly.
 
@@ -195,7 +204,8 @@ The previous Page 420 process ran only for `FORWARD`. Pressing Apply/CREATE or
 SAVE therefore left `P`/`D` with no history, which the approval inbox correctly
 excluded. Install the Page 420 process settings above; replacing only the
 PL/SQL body while keeping **When Button Pressed = FORWARD** will not fix it.
-No database package change is needed for this page integration fix.
+The page conditions must be wired even after the current policy package is
+installed; replacing the package alone does not make the page call it.
 
 For an already saved draft, reopen it as its applicant and press Save, Apply, or
 Forward once. Do not update its statuses directly: that does not build a route.
@@ -212,8 +222,8 @@ SELECT lr.leave_id, lr.empid, lr.leave_status, lr.request_status,
  ORDER BY h.step_no;
 ```
 
-Expected: request `F`/`F`, one first approver `PENDING`, and later steps
-`WAITING`. Sign in as that first approver with the same authorized company;
+Expected: request `F`/`F`, a pending RP or all eligible final candidates pending,
+and HRD waiting. Sign in as a pending assignee with the authorized company;
 the Page 422 inbox below should show the request. Saving an existing draft
 must produce the same route. Reapplying a forwarded request must fail.
 
@@ -255,9 +265,11 @@ SELECT a.* FROM v_leave_approval a
 Use this query for the SUBMIT_ACTION button and action select list server-side row condition too,
 with `a.leave_id = :P422_LEAVE_ID` and no ORDER BY. The package locks the request,
 checks the actor/current assignment and step order again, and allows only
-the single current step to act. Intermediate approval stays `F`/`F`. MD's
-approval changes it to `A`/`A` and activates HRD. Rejection at any approval
-step sets `R`/`F` and cancels every later step.
+the actor's pending step to act. RP recommendation stays `F`/`F` and activates
+the final group. One final HOD/Plant Head/MD approval changes it to `A`/`A`,
+cancels the alternative candidate, and activates HRD. Rejection sets `R`/`F`
+and cancels all other pending/waiting steps. The parent request lock serializes
+simultaneous decisions: a second candidate cannot decide after the first resolves it.
 
 HRD inbox and RECORD button condition:
 
@@ -286,30 +298,25 @@ Use the allocation/consumption views and `V_EL_BALANCE` for actual balances.
 
 Run `CHECK_COMPANY_APPROVAL.sql` for read-only source, role, compilation, and
 pending-route checks. Run `TEST_COMPANY_APPROVAL.sql` only in a test HRMS database.
-Supply existing employees for the four RP/HOD combinations; use distinct
-RP/HOD/Plant Head/MD people to exercise each stage. The script also tests the
-Plant Head's and a HOD's own applications. Enter 0 only for unavailable
-fixtures; skipped cases are explicitly reported as unverified.
+Supply one company and an ordinary employee with one distinct active RP and
+HOD. Plant Head, MD, HRD, RP, HOD, and applicant must be distinct active people
+in the same test company. The script temporarily changes RP/HOD mappings to exercise
+missing and shared-role cases, then rolls them back. It tests either final
+candidate winning, HOD/Plant Head applications, RP recommendation/rejection,
+one final decision, cancellation of alternatives, premature/unauthorized/repeated
+actions, HRD recording, changed assignments, and legacy-route rejection.
+Sequence values are consumed, but request/history and temporary mapping changes
+roll back. No live Oracle compilation or execution has been performed here.
 
-Tests create temporary leave applications, verify ordered activation, missing
-RP/HOD routes, intermediate/final states, actor/company restrictions, repeat
-submits, recording after MD only, and rejection at each approval stage. All
-request/history changes and temporary RP/HOD assignment changes roll back; sequence
-values are consumed. The HOD tests verify that inactive assignments are omitted
-from new routes and that deactivating an assignment prevents its saved pending
-approval from advancing. Shared-role tests reuse the FULL fixture with temporary
-RP/HOD mappings for RP=HOD, HOD=Plant Head, RP=Plant Head, and all three equal.
-They check the exact combined route, one completed approval per employee,
-activation of the next different approver, final MD approval, HRD recording,
-and rejection of manually duplicated approval assignments. No live
-Oracle compilation or execution has been performed from this workspace.
-Offline query checks executed the summary and role-order view SELECTs in
-SQLite with a `TO_CHAR` compatibility function. Those checks passed aggregation,
-status exclusion, employee/month isolation, and role order; they do not verify
-Oracle syntax or the PL/SQL package. All 29 local SQL include references and
-changed-file whitespace checks passed.
-The HOD selection query was also checked offline against active, inactive,
-null-status, duplicate active, and other-company/department assignments.
-Offline checks of the actual history-validation SELECT accept all four shared
-RP/HOD/Plant Head combinations, permit a separate HRD recording role, and
-detect a repeated approver under different approval role names.
+Offline SQL regression checks run with Node 24:
+
+```powershell
+node D:\HRPAYROLL\Leave\tests\approval_queries.cjs
+```
+
+These execute the package's extracted SQL updates and state-count expressions,
+the workflow-group view SELECT, and the Page 419 report in SQLite with Oracle
+compatibility substitutions. Eighteen approval/rejection paths plus RP rejection,
+invalid group states, alternative cancellation, HRD recording, pending names,
+and user isolation passed. They do not compile PL/SQL or execute its route builder,
+locking, or rollback behavior; run the Oracle test script for those checks.

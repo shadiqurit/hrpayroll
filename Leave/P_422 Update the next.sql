@@ -11,8 +11,9 @@
 -- Add P422_COMMENTS (optional; maximum 300 bytes).
 -- P422_APPROVER_ID/LEVEL/DID are display-only. The selected action grants no
 -- authority: the package checks the actor and stored pending assignment.
--- RP/HOD/PLANT_HEAD approvals activate the next step and retain F/F.
--- MD approval sets A/A and activates HRD; RECORD completes HRD's audit step.
+-- RP recommendation activates all eligible final candidates and retains F/F.
+-- ONE HOD/Plant Head/MD approval sets A/A and cancels alternatives.
+-- HRD RECORD completes the audit step after the final decision.
 DECLARE
     l_action VARCHAR2(20);
 BEGIN

@@ -65,6 +65,9 @@ Code হিসেবে `P_422 Update the next.sql`-এর সম্পূর্
 SUBMIT_ACTION হলে `P422_APPROVAL_STATUS` থেকে APPROVE/REJECT পড়ে; null,
 APPROVED, REJECTED, RECORD বা অন্য return value approval submit-এ গ্রহণ করে না।
 RECORD request হলে আলাদা HRD action নেয়; select list-এর পুরোনো value নেয় না।
+RP-এর APPROVE হলো recommendation; request F/F থাকে। HOD/Plant Head/MD-এর
+মধ্যে eligible final candidate যেকোনো একজন approve করলেই A/A হয়, অন্য
+candidate-এর pending step CANCELLED হয় এবং HRD-এর recording step PENDING হয়।
 
 `P422_LEAVE_ID`-তে selected request ID থাকতে হবে। Actor `:USER_ID` হলো numeric
 EMPLOYEES.ID; `:G_EMP_ID` character employee/IPI code। Package database থেকে
@@ -102,13 +105,16 @@ HRD-কে APPROVE/REJECT নির্বাচন করতে হবে না
 
 ## 5. যাচাই
 
-- Pending approver-এর login দিয়ে APPROVE নির্বাচন করে Submit দিন: history
-  APPROVED হবে এবং next step PENDING হবে; MD-এর আগে request F/F থাকবে।
+- RP-এর login দিয়ে APPROVE দিন: recommendation complete হবে, eligible final
+  candidates PENDING হবে; request F/F থাকবে।
+- Eligible HOD বা Plant Head দিয়ে employee leave approve করুন: A/A হবে,
+  alternative candidate CANCELLED হবে, HRD PENDING হবে; MD approval লাগবে না।
 - অন্য একটি pending request-এ REJECT দিন: current history REJECTED,
   request R/F, এবং later steps CANCELLED হবে।
 - কোনো action নির্বাচন না করে Submit দিলে error হবে; history অপরিবর্তিত থাকবে।
 - অন্য employee বা already-completed request দিয়ে action নেওয়া যাবে না।
-- MD approve করলে request A/A হবে; শুধু তখন HRD RECORD করতে পারবেন।
+- HOD-এর আবেদনে Plant Head অথবা MD; Plant Head-এর আবেদনে MD approve করবেন।
+  Final approval-এর পরেই HRD RECORD করতে পারবেন।
 
 LOV reference: [Oracle APEX: Beginners Guide to List of Values](https://blogs.oracle.com/apex/beginners-guide-to-list-of-values-in-oracle-apex).
 Live APEX/Oracle-এ এই workspace থেকে প্রয়োগ বা পরীক্ষা করা হয়নি।

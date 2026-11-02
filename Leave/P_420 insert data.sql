@@ -13,8 +13,9 @@
 -- browser assignment; do not obtain the actor from P420_EMPID.
 -- DML: Return Primary Key(s) after Insert = Yes; LEAVE_ID -> P420_LEAVE_ID.
 -- CREATE/SAVE/APPLY/FORWARD create the ordered company route after saving:
--- RP (if assigned), HOD (if assigned), PLANT_HEAD, MANAGING_DIRECTOR, LEAVE_RECORD.
--- Heads skip their own and lower approval levels; see APEX_COMPANY_APPROVAL.md.
+-- Employee: optional RP, then HOD OR PLANT_HEAD; HOD: PLANT_HEAD OR MD;
+-- Plant Head: MD. One final decision activates HRD LEAVE_RECORD.
+-- Shared-role people act once; see APEX_COMPANY_APPROVAL.md.
 BEGIN
     IF apex_application.g_request IN ('CREATE', 'SAVE', 'APPLY', 'FORWARD') THEN
         IF :P420_LEAVE_ID IS NULL THEN

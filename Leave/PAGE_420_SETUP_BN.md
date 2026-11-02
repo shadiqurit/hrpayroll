@@ -21,9 +21,12 @@ Existing table-এর DROP/CREATE file বা REQUEST_STATUS upgrade আবা�
 Installer Oracle DDL চালায়, তাই unrelated transaction শেষ করে চালান।
 
 `V_LEAVE_ROLES`-এ applicant company-এর `PLANT_HEAD`, `MANAGING_DIRECTOR`,
-`LEAVE_RECORD` প্রত্যেকটির একটি active assignment থাকতে হবে। RP আসে EMP_RP
-থেকে, HOD আসে active HOD assignment থেকে। Missing RP/HOD skip হয়।
-Company role বা employee inactive/missing হলে package error দেখাবে।
+`LEAVE_RECORD` assignment দিয়ে route নির্ধারিত হয়। HRD required। সাধারণ
+employee-এর final approval HOD অথবা Plant Head; HOD-এর নিজের leave Plant Head
+অথবা MD; Plant Head-এর নিজের leave MD। প্রয়োজনীয় final candidate অন্তত একজন
+থাকতে হবে। সাধারণ employee-এর জন্য MD assignment বাধ্যতামূলক নয়। RP আসে
+EMP_RP থেকে; distinct RP থাকলে তাঁর recommendation-এর পরে final candidates
+একসঙ্গে PENDING হয়। Shared-role person একবার final approver হিসেবে act করেন।
 
 ## 2. Login context এবং Form items
 
@@ -133,7 +136,8 @@ existing row edit-link-এ তার LEAVE_ID পাঠান। Submitted reque
 LEAVE_REQUEST insert/update
   → generated LEAVE_ID returned to P420_LEAVE_ID
   → pkg_leave_approval.submit_request
-  → LEAVE_APP_HISTORY: first included approver PENDING, later steps WAITING
+  → LEAVE_APP_HISTORY: distinct RP থাকলে শুধু RP PENDING, finals WAITING
+    RP না থাকলে eligible final candidates সবাই PENDING; HRD WAITING
   → LEAVE_REQUEST: LEAVE_STATUS=F, REQUEST_STATUS=F
   → report / dialog close
 ```
@@ -157,7 +161,7 @@ SELECT lr.leave_id, lr.empid, lr.leave_status, lr.request_status,
 | Active employee / applicant error | Server-side numeric USER_ID, G_COM_ID এবং numeric P420_EMPID দেখুন; G_EMP_ID character code |
 | Missing company role error | V_LEAVE_ROLES-এর active company assignments ঠিক করুন |
 | Existing approval history error | পুরোনো route review করুন; status পাল্টে বা history delete করে bypass করবেন না |
-| F/F, একটি PENDING, বাকিগুলো WAITING | Route তৈরি হয়েছে; প্রথম pending approver-এর inbox পরীক্ষা করুন |
+| F/F, RP PENDING অথবা eligible finals সবাই PENDING | Route তৈরি হয়েছে; pending approvers-এর inbox পরীক্ষা করুন |
 
 শুধু F/F update করে দিলে history তৈরি হয় না। Package call প্রয়োজন।
 
@@ -180,8 +184,9 @@ SELECT a.*
  ORDER BY a.leave_id, a.step_no;
 ```
 
-যার step PENDING, শুধু তার login/company-তে আবেদন দেখাবে। পরে যাদের WAITING,
-তাদের inbox-এ এখনই দেখাবে না। Approve/Reject process-এর জন্য
+যাদের step PENDING, তাঁদের login/company-তে আবেদন দেখাবে। Alternative final
+approvers একসঙ্গে দেখতে পারবেন; একজন approve করলে অন্যজনের আর action লাগবে
+না। যাদের WAITING, তাঁদের inbox-এ এখনই দেখাবে না। Approve/Reject process-এর জন্য
 `P_422 Update the next.sql` এবং `APEX_COMPANY_APPROVAL.md` অনুসরণ করুন।
 P422_APPROVAL_STATUS select list-এর APPROVE/REJECT এবং SUBMIT_ACTION button
 সেটআপের জন্য `PAGE_422_SETUP_BN.md` দেখুন।

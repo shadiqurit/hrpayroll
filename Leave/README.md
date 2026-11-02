@@ -1,15 +1,16 @@
 # Leave allocation, request stages and deletion
 
-## RP / HOD / Plant Head / MD approval and HRD records
+## RP recommendation / one higher-tier approval / HRD records
 
 For the company-wise flow using `V_LEAVE_ROLES`, see
-[APEX_COMPANY_APPROVAL.md](APEX_COMPANY_APPROVAL.md). The sequential route is
-`RP` → `HOD` → `PLANT_HEAD` → `MANAGING_DIRECTOR` → `LEAVE_RECORD`.
-Missing RP/HOD assignments are skipped. HOD starts with Plant Head; Plant
-Head starts with MD for their own leave. Only MD approval makes the request
-final; HRD then records it. All company roles come from `V_LEAVE_ROLES`.
-If RP, HOD, or Plant Head is the same employee, that person approves once at
-their highest assigned approval level before the next different approver acts.
+[APEX_COMPANY_APPROVAL.md](APEX_COMPANY_APPROVAL.md). Ordinary employee leave
+needs optional RP recommendation, then **HOD OR Plant Head**, with no MD step.
+HOD leave needs **Plant Head OR MD**; Plant Head leave needs **MD**. Either
+eligible final candidate can approve once; other pending alternatives are
+cancelled. HRD records after that final decision. All company roles come from
+`V_LEAVE_ROLES`. If RP is also a final candidate, that person acts once at the
+final role. A person holding several final roles receives only one candidate
+entry. STEP_NO groups RP=10, final alternatives=20, HRD=50.
 Install `INSTALL_COMPANY_APPROVAL.sql`, replace the old Page 420 history
 process, and wire the approval/recording buttons as described there. Page 420
 Apply (`CREATE`/`APPLY`) and the default form's `SAVE` save and submit the route.

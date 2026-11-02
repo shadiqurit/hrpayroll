@@ -72,7 +72,7 @@ EXCEPTION
 END;
 /
 
-PROMPT Leave approval installed: RP / HOD / Plant Head / MD / HRD.
+PROMPT Leave approval installed: optional RP / one eligible higher-tier approver / HRD.
 PROMPT Existing pending histories are preserved and require review before migration.
 PROMPT Wire Page 420 and Page 422 using APEX_COMPANY_APPROVAL.md.
 WHENEVER SQLERROR CONTINUE NONE
