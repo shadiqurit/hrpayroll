@@ -374,6 +374,9 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_leave_approval AS
                upd_date = SYSDATE, upd_by = p_actor_id
          WHERE leave_id = p_leave_id;
         check_history(p_leave_id, l_company);
+        IF l_action = 'APPROVE' AND l_step.approver_level IN ('HOD', 'PLANT_HEAD', 'MANAGING_DIRECTOR') THEN
+            HRMS.post_leave_consumption(p_leave_id, l_company, p_actor_id);
+        END IF;
     EXCEPTION
         WHEN NO_DATA_FOUND THEN
             ROLLBACK TO leave_action_start;

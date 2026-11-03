@@ -43,6 +43,11 @@ END;
 /
 
 @@TRG_LEAVE_REQUEST_STATUS.sql
+@@UPGRADE_LEAVE_CONSUMPTION.sql
+@@FN_LEAVE_TYPE_ID.sql
+@@V_LEAVE_YEAR_BALANCE.sql
+@@F_LEAVE_BA.sql
+@@POST_LEAVE_CONSUMPTION.sql
 @@V_LEAVE_APPROVAL_STEPS.sql
 @@PKG_LEAVE_APPROVAL.sql
 @@V_LEAVE_APPROVAL.sql
@@ -54,7 +59,9 @@ BEGIN
     SELECT COUNT(*) INTO l_errors FROM user_errors
      WHERE name IN ('PKG_LEAVE_APPROVAL', 'TRG_LEAVE_APP_HISTORY_PK',
                    'TRG_LEAVE_REQUEST_PK', 'TRG_LEAVE_REQUEST_STATUS',
-                   'V_LEAVE_APPROVAL_STEPS', 'V_LEAVE_APPROVAL', 'V_EMP_LEAVE_TOTAL')
+                   'V_LEAVE_APPROVAL_STEPS', 'V_LEAVE_APPROVAL', 'V_EMP_LEAVE_TOTAL',
+                   'TRG_LEAVE_CONSUMPTION_PK', 'FN_LEAVE_TYPE_ID',
+                   'V_LEAVE_YEAR_BALANCE', 'F_LEAVE_BA', 'POST_LEAVE_CONSUMPTION')
        AND attribute = 'ERROR';
     IF l_errors > 0 THEN
         RAISE_APPLICATION_ERROR(-20819, 'Leave approval objects have compilation errors. Check USER_ERRORS.');
@@ -73,6 +80,7 @@ END;
 /
 
 PROMPT Leave approval installed: optional RP / one eligible higher-tier approver / HRD.
+PROMPT Final approval posts consumption once and checks the start-year balance.
 PROMPT Existing pending histories are preserved and require review before migration.
 PROMPT Wire Page 420 and Page 422 using APEX_COMPANY_APPROVAL.md.
 WHENEVER SQLERROR CONTINUE NONE

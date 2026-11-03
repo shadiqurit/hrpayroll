@@ -24,9 +24,17 @@ Use `:USER_ID` (numeric `EMPLOYEES.ID`) for actors and approval inbox filters.
 `:G_EMP_ID` is the character employee/IPI code, not a numeric workflow ID.
 For the Page 422 APPROVE/REJECT select list and Submit button, see
 [PAGE_422_SETUP_BN.md](PAGE_422_SETUP_BN.md).
-For the Page 419 applicant report's current pending person's name and role,
+For HRD's RECORD button and pending/completed recording reports on Page 422,
+see [PAGE_422_HRD_SETUP_BN.md](PAGE_422_HRD_SETUP_BN.md).
+For the Page 419 applicant report's pending names/roles in its single
+`LEAVE_STATUS` display column (Approved after final approval),
 use [page_419_leave_request_report.sql](page_419_leave_request_report.sql)
 and [PAGE_419_SETUP_BN.md](PAGE_419_SETUP_BN.md).
+Final approval now posts consumption once, checks sufficient start-year balance,
+and updates the live balance query. HRD recording does not deduct again. Install
+the updated installer before replacing the Page 419 report SQL. Setup and
+existing-data reconciliation are in
+[LEAVE_CONSUMPTION_POSTING_BN.md](LEAVE_CONSUMPTION_POSTING_BN.md).
 Run `CHECK_COMPANY_APPROVAL.sql` for diagnostics and `TEST_COMPANY_APPROVAL.sql`
 in a test HRMS database for route/state tests. The supplied HOD definition is
 saved in `Table/hod.sql`; only HOD assignments with `STATUS = 'ACTIVE'`

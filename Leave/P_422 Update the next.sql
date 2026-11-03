@@ -13,6 +13,7 @@
 -- authority: the package checks the actor and stored pending assignment.
 -- RP recommendation activates all eligible final candidates and retains F/F.
 -- ONE HOD/Plant Head/MD approval sets A/A and cancels alternatives.
+-- Package posts consumption once at final approval and blocks insufficient balance.
 -- HRD RECORD completes the audit step after the final decision.
 DECLARE
     l_action VARCHAR2(20);

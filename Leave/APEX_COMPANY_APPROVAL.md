@@ -43,6 +43,9 @@ No new columns are needed in the supplied `LEAVE_REQUEST` and
 `LEAVE_APP_HISTORY` tables. `V_LEAVE_APPROVAL_STEPS` derives order from
 `APPROVER_LEVEL`: RP=10, HOD/Plant Head/MD=20, HRD=50. STEP_NO is a workflow
 group, so multiple final candidates legitimately share 20.
+`LEAVE_CONSUMPTION.LEAVE_ID` is added by the consumption upgrade, with a unique
+request link. Final approval posts consumption atomically and requires sufficient
+start-year allocation. RP recommendation and HRD recording do not post.
 
 - RP: `EMP_RP.EMP_ID`, `REP_PERSON_ID`; active STATUS accepts `ACTIVE`, `1`,
   or `Y`. The table export defaults to `ACTIVE`, while old leave code used `1`.
@@ -94,6 +97,9 @@ The supplied `REQUEST_STATUS` column already exists, so **do not rerun
    and installs the grouped workflow package and views.
 4. Refreshes `V_EMP_LEAVE_TOTAL` to sum all approved requests in a start month.
 5. Removes the old insert trigger that created RP/HOD history on draft saves.
+6. Upgrades the consumption request link and ID trigger, installs live balance
+   calculation, and connects final approval to consumption posting. See
+   [LEAVE_CONSUMPTION_POSTING_BN.md](LEAVE_CONSUMPTION_POSTING_BN.md).
 
 Oracle DDL commits. Existing applications and audit history are preserved;
 old pending routes are not silently converted. The package matches the saved
@@ -273,6 +279,10 @@ simultaneous decisions: a second candidate cannot decide after the first resolve
 
 HRD inbox and RECORD button condition:
 
+For full Page 422 setup, see [PAGE_422_HRD_SETUP_BN.md](PAGE_422_HRD_SETUP_BN.md).
+Use [page_422_pending_inbox.sql](page_422_pending_inbox.sql) when the existing
+report must show both pending approvals and approved leaves awaiting HRD recording.
+
 ```sql
 SELECT a.* FROM v_leave_approval a
  WHERE a.com_id = :G_COM_ID AND a.approver_id = :USER_ID
@@ -287,9 +297,12 @@ show RECORD in this inbox. Recording changes HRD history to `RECORDED` with
 date, employee, and remarks; the request remains approved. For HRD's completed
 register use the same query with `approval_status = 'RECORDED'`.
 
-`LEAVE_RECORD` is a role/history step, not a new table. This workflow does not
-post `LEAVE_CONSUMPTION` or deduct leave balances. Keep the existing authorized
-posting process; do not count approved requests and posted consumption twice.
+`LEAVE_RECORD` is a role/history step, not a new table. Final approval now posts
+`LEAVE_CONSUMPTION` once, linked by LEAVE_ID; HRD records later without another
+debit. Disable any old separate APEX consumption INSERT for this workflow.
+Allocation totals remain gross; balance = allocation minus consumption. Entire
+PROPOSED_DAYS is charged to the start-date year, even for cross-year requests.
+An insufficient balance rolls back the final approval and history transition.
 `V_EMP_LEAVE_TOTAL` is a request report, attributes each request to its start
 month, and preserves the existing SL+CL+EL total and separate EC columns.
 Use the allocation/consumption views and `V_EL_BALANCE` for actual balances.
@@ -306,12 +319,17 @@ candidate winning, HOD/Plant Head applications, RP recommendation/rejection,
 one final decision, cancellation of alternatives, premature/unauthorized/repeated
 actions, HRD recording, changed assignments, and legacy-route rejection.
 Sequence values are consumed, but request/history and temporary mapping changes
-roll back. No live Oracle compilation or execution has been performed here.
+roll back. Tests also roll back temporary allocations and posted consumption.
+They verify no debit on RP/rejection, one final debit, safe retries, unchanged
+HRD recording quantities, insufficient/missing allocation rollback, full start-year
+charging across December/January, and unlinked manual duplicate detection.
+No live Oracle compilation or execution has been performed here.
 
 Offline SQL regression checks run with Node 24:
 
 ```powershell
 node D:\HRPAYROLL\Leave\tests\approval_queries.cjs
+node D:\HRPAYROLL\Leave\tests\consumption_queries.cjs
 ```
 
 These execute the package's extracted SQL updates and state-count expressions,
@@ -320,3 +338,7 @@ compatibility substitutions. Eighteen approval/rejection paths plus RP rejection
 invalid group states, alternative cancellation, HRD recording, pending names,
 and user isolation passed. They do not compile PL/SQL or execute its route builder,
 locking, or rollback behavior; run the Oracle test script for those checks.
+Consumption SQL checks also cover type scope/short-code resolution, fractional
+and exact balance, missing/insufficient allocation, idempotent posting, unique
+request links, existing manual matches, live account totals, and outer transaction
+rollback of the actual decision UPDATEs when posting fails.

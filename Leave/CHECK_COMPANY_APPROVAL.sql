@@ -2,12 +2,16 @@
 SELECT object_name, object_type, status FROM user_objects
  WHERE object_name IN ('PKG_LEAVE_APPROVAL', 'V_LEAVE_APPROVAL_STEPS',
        'V_LEAVE_APPROVAL', 'V_EMP_LEAVE_TOTAL', 'TRG_LEAVE_REQUEST_PK',
-       'TRG_LEAVE_APP_HISTORY_PK', 'TRG_LEAVE_REQUEST_STATUS');
+       'TRG_LEAVE_APP_HISTORY_PK', 'TRG_LEAVE_REQUEST_STATUS',
+       'TRG_LEAVE_CONSUMPTION_PK', 'FN_LEAVE_TYPE_ID',
+       'V_LEAVE_YEAR_BALANCE', 'F_LEAVE_BA', 'POST_LEAVE_CONSUMPTION');
 
 SELECT name, type, line, position, text FROM user_errors
  WHERE name IN ('PKG_LEAVE_APPROVAL', 'V_LEAVE_APPROVAL_STEPS',
        'V_LEAVE_APPROVAL', 'V_EMP_LEAVE_TOTAL', 'TRG_LEAVE_REQUEST_PK',
-       'TRG_LEAVE_APP_HISTORY_PK', 'TRG_LEAVE_REQUEST_STATUS')
+       'TRG_LEAVE_APP_HISTORY_PK', 'TRG_LEAVE_REQUEST_STATUS',
+       'TRG_LEAVE_CONSUMPTION_PK', 'FN_LEAVE_TYPE_ID',
+       'V_LEAVE_YEAR_BALANCE', 'F_LEAVE_BA', 'POST_LEAVE_CONSUMPTION')
  ORDER BY name, type, sequence;
 
 -- HRD is required. Plant Head/MD are optional sources, but cannot be duplicated.
@@ -102,3 +106,14 @@ SELECT lr.leave_id, lr.empid, lr.leave_status, lr.request_status,
   FROM leave_request lr JOIN v_leave_approval_steps h ON h.leave_id = lr.leave_id
  WHERE h.approval_status = 'PENDING'
  ORDER BY h.com_id, lr.leave_id, h.step_no;
+
+-- Approved requests created before automatic posting need reconciliation.
+-- Do not bulk post these: they may already have unlinked manual consumption.
+SELECT lr.leave_id, lr.empid, lr.leave_type, lr.l_start_date, lr.l_end_date,
+       lr.proposed_days
+  FROM leave_request lr
+ WHERE lr.leave_status = 'A' AND lr.request_status = 'A'
+   AND NOT EXISTS (SELECT 1 FROM leave_consumption c WHERE c.leave_id = lr.leave_id);
+
+SELECT empid, leave_type_id, leave_year, allocated_days, consumed_days, balance_days
+  FROM v_leave_year_balance WHERE balance_days < 0;

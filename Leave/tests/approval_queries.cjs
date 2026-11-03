@@ -9,8 +9,9 @@ const source = fs.readFileSync(path.join(root, 'PKG_LEAVE_APPROVAL.sql'), 'utf8'
 const db = new DatabaseSync(':memory:');
 db.function('TO_CHAR', value => value == null ? null : String(value));
 db.function('TRIM', value => value == null ? null : (String(value).trim() || null));
+db.function('FN_LEAVE_TYPE_ID', (value, company, activeOnly) => Number(value)); // Numeric fixture IDs only.
 db.exec(`
-    CREATE TABLE employees (id INTEGER PRIMARY KEY, f_name TEXT, l_name TEXT);
+    CREATE TABLE employees (id INTEGER PRIMARY KEY, f_name TEXT, l_name TEXT, com_id INTEGER DEFAULT 1);
     CREATE TABLE leave_app_history (
         id INTEGER PRIMARY KEY, leave_id INTEGER, approver_level TEXT, approver_id INTEGER,
         approval_status TEXT, com_id INTEGER, approval_date TEXT, comments TEXT, upd_date TEXT, upd_by INTEGER);
@@ -20,7 +21,10 @@ db.exec(`
         l_start_date TEXT, l_end_date TEXT, proposed_days REAL, leave_purpose TEXT,
         app_leave_typ TEXT, leave_address TEXT, ent_date TEXT, ent_by INTEGER,
         upd_date TEXT, upd_by INTEGER, comments TEXT);
-    INSERT INTO employees VALUES (101, 'Test', 'RP'), (102, 'Test', 'HOD'),
+    CREATE TABLE leave_allocation (empid INTEGER, leave_type_id INTEGER, allocation_year INTEGER, allocated_days REAL);
+    CREATE TABLE leave_consumption (leave_id INTEGER UNIQUE, empid INTEGER, leave_type_id INTEGER, consum_year INTEGER, consumed_days REAL);
+    INSERT INTO employees (id,f_name,l_name) VALUES (10,'Test','Applicant'),
+        (101, 'Test', 'RP'), (102, 'Test', 'HOD'),
         (103, 'Test', 'Plant'), (104, 'Test', 'MD'), (105, 'Test', 'HRD');
 `);
 
@@ -30,8 +34,11 @@ function oracleQuery(sql) {
         .replace(/\bNVL\(/gi, 'IFNULL(')
         .replace(/\bLISTAGG\(/gi, 'GROUP_CONCAT(')
         .replace(/\s+WITHIN GROUP \(ORDER BY h\.id\)/gi, '')
+        .replace(/EXTRACT\(YEAR FROM lr\.l_start_date\)/gi, "CAST(strftime('%Y',lr.l_start_date) AS INTEGER)")
         .replace(/\bSYSDATE\b/g, 'CURRENT_TIMESTAMP');
 }
+const balanceViewSQL = fs.readFileSync(path.join(root, 'V_LEAVE_YEAR_BALANCE.sql'), 'utf8').split(/\bAS\s*\r?\n/)[1];
+db.exec('CREATE VIEW v_leave_year_balance AS ' + oracleQuery(balanceViewSQL));
 function statement(sql) {
     return oracleQuery(sql)
         .replace(/l_step\.approver_level/g, ':role')
@@ -69,8 +76,8 @@ const diagnosticSource = fs.readFileSync(path.join(root, 'CHECK_COMPANY_APPROVAL
 const groupDiagnosticSQL = diagnosticSource.match(/SELECT lr\.leave_id, COUNT\(h\.id\)[\s\S]*?;/)[0];
 function groupIssues() { return db.prepare(oracleQuery(groupDiagnosticSQL)).all(); }
 function seed(roles, rp = false) {
-    db.exec('DELETE FROM leave_app_history; DELETE FROM leave_request;');
-    db.exec("INSERT INTO leave_request (leave_id, empid, leave_status, request_status) VALUES (1,10,'F','F');");
+    db.exec('DELETE FROM leave_consumption; DELETE FROM leave_app_history; DELETE FROM leave_request;');
+    db.exec("INSERT INTO leave_request (leave_id,empid,leave_type,l_start_date,leave_status,request_status) VALUES (1,10,'1','2099-01-01','F','F');");
     const insert = db.prepare('INSERT INTO leave_app_history (id,leave_id,approver_level,approver_id,approval_status,com_id) VALUES (?,1,?,?,?,1)');
     let id = 1;
     if (rp) insert.run(id++, 'RP', 101, 'PENDING');
@@ -110,37 +117,38 @@ for (const [roles, rp] of [
     for (const [, winner] of roles) {
         seed(roles, rp);
         if (rp) {
-            assert.equal(report().pending_with, 'Test RP');
+            assert.equal(report().leave_status, 'Pending with Test RP (RP)');
             assert.deepEqual({ ...decide(101, 'APPROVE') }, { leave_status: 'F', request_status: 'F' });
         }
-        assert.equal(report().current_stage, 'Pending Approval');
-        assert.equal(report().pending_with.split(', ').length, roles.length);
+        assert.ok(report().leave_status.startsWith('Pending with '));
+        assert.equal(report().leave_status.split(', ').length, roles.length);
+        for (const removed of ['pending_with', 'pending_role', 'current_stage']) {
+            assert.equal(Object.hasOwn(report(), removed), false);
+        }
         assert.deepEqual({ ...decide(winner, 'APPROVE') }, { leave_status: 'A', request_status: 'A' });
-        assert.equal(report().pending_with, 'Test HRD');
-        assert.equal(report().current_stage, 'Pending HRD Recording');
+        assert.equal(report().leave_status, 'Approved', 'HRD recording pending still displays Approved');
         const finals = db.prepare("SELECT * FROM leave_app_history WHERE approver_level IN ('HOD','PLANT_HEAD','MANAGING_DIRECTOR')").all();
         assert.equal(finals.filter(row => row.approval_status === 'APPROVED').length, 1);
         assert.equal(finals.filter(row => row.approval_status === 'CANCELLED').length, roles.length - 1);
         decide(105, 'RECORD');
-        assert.equal(report().current_stage, 'Approved');
-        assert.equal(report().pending_with, null);
+        assert.equal(report().leave_status, 'Approved');
         seed(roles, rp);
         if (rp) decide(101, 'APPROVE');
         assert.deepEqual({ ...decide(winner, 'REJECT') }, { leave_status: 'R', request_status: 'F' });
-        assert.equal(report().pending_with, null);
+        assert.equal(report().leave_status, 'Rejected');
         assert.equal(db.prepare("SELECT COUNT(*) AS n FROM leave_app_history WHERE approval_status IN ('PENDING','WAITING')").get().n, 0);
         cases += 2;
     }
 }
 seed([['HOD', 102], ['PLANT_HEAD', 103]], true);
 decide(101, 'REJECT');
-assert.equal(report().current_stage, 'Rejected');
+assert.equal(report().leave_status, 'Rejected');
 
 // Invalid group combinations, duplicate assignees, missing routes and user isolation.
 seed([['HOD', 102], ['PLANT_HEAD', 103]], true);
 db.exec("UPDATE leave_app_history SET approval_status='PENDING' WHERE approver_level='HOD';");
 assert.equal(validGroup('F'), false);
-assert.equal(report().current_stage, 'Review: Invalid Pending Assignments');
+assert.ok(report().leave_status.startsWith('Pending with '));
 assert.equal(groupIssues().length, 1);
 seed([['HOD', 102], ['PLANT_HEAD', 103]], false);
 db.exec("UPDATE leave_app_history SET approval_status='WAITING' WHERE approver_level='PLANT_HEAD';");
@@ -150,16 +158,16 @@ seed([['HOD', 102], ['PLANT_HEAD', 103]], false);
 db.exec("UPDATE leave_app_history SET approval_status='APPROVED' WHERE approver_level IN ('HOD','PLANT_HEAD'); UPDATE leave_app_history SET approval_status='PENDING' WHERE approver_level='LEAVE_RECORD';");
 assert.equal(validGroup('A'), false);
 seed([['HOD', 102], ['PLANT_HEAD', 102]], false);
-assert.equal(report().current_stage, 'Review: Invalid Pending Assignments');
+assert.ok(report().leave_status.startsWith('Pending with '));
 seed([['PLANT_HEAD', 999]], false);
-assert.equal(report().pending_with, 'Employee ID 999');
+assert.equal(report().leave_status, 'Pending with Employee ID 999 (Plant Head)');
 db.exec("UPDATE employees SET l_name=NULL WHERE id=103;");
 seed([['PLANT_HEAD', 103]], false);
-assert.equal(report().pending_with, 'Test');
+assert.equal(report().leave_status, 'Pending with Test (Plant Head)');
 db.exec('DELETE FROM leave_app_history;');
-assert.equal(report().current_stage, 'Approval Route Requires Review');
+assert.equal(report().leave_status, 'Pending');
 db.exec("UPDATE leave_request SET leave_status='P',request_status='D';");
-assert.equal(report().current_stage, 'Not Submitted');
+assert.equal(report().leave_status, 'Pending');
 db.exec('UPDATE leave_request SET empid=20;');
 assert.equal(report(), undefined);
 
@@ -172,8 +180,14 @@ assert.ok(finalGroups.every(row => row.step_no === 20));
 seed([['HOD', 102], ['PLANT_HEAD', 103]], false);
 db.exec("UPDATE leave_app_history SET approver_id=103 WHERE approver_level='LEAVE_RECORD';");
 decide(103, 'APPROVE');
-assert.equal(report().current_stage, 'Pending HRD Recording');
+assert.equal(report().leave_status, 'Approved');
 decide(103, 'RECORD');
-assert.equal(report().current_stage, 'Approved');
+assert.equal(report().leave_status, 'Approved');
+db.exec('INSERT INTO leave_allocation VALUES (10,1,2099,10); INSERT INTO leave_consumption VALUES (NULL,10,1,2099,2);');
+assert.equal(report().leave_balance, 8);
+assert.equal(report().leave_taken, 2);
+db.exec('INSERT INTO leave_consumption VALUES (1,10,1,2099,3);');
+assert.equal(report().leave_balance, 5, 'Page 419 reads live balance rather than stale request fields');
+assert.equal(report().leave_taken, 5);
 db.close();
-console.log(`PASS: ${cases} approval/rejection SQL paths, RP rejection, grouping validation, alternative cancellation, HRD recording, Page 419 names/roles, invalid assignments and user isolation. Oracle PL/SQL execution remains unverified.`);
+console.log(`PASS: ${cases} approval/rejection SQL paths, RP rejection, grouping validation, alternative cancellation, HRD recording, Page 419 single-column pending names/roles and Approved display, invalid assignments and user isolation. Oracle PL/SQL execution remains unverified.`);

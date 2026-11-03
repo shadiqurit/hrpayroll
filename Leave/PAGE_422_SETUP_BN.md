@@ -102,6 +102,8 @@ SELECT 1
 HRD-এর জন্য RECORD button আলাদা রাখুন; তার A/A + LEAVE_RECORD/PENDING
 condition `APEX_COMPANY_APPROVAL.md`-এ আছে। Value Required = No রাখায়
 HRD-কে APPROVE/REJECT নির্বাচন করতে হবে না।
+একই Page 422-এ HRD inbox, RECORD button, process condition এবং completed
+register-এর ধাপসমূহ `PAGE_422_HRD_SETUP_BN.md`-এ আছে।
 
 ## 5. যাচাই
 

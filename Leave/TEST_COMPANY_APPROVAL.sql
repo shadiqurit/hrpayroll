@@ -1,5 +1,6 @@
 -- Run only in a TEST HRMS database after INSTALL_COMPANY_APPROVAL.sql.
--- Clean session required. Requests/history and temporary RP/HOD changes roll back.
+-- Clean session required. Requests/history/consumption and temporary allocations
+-- and RP/HOD changes roll back. Tests verify posting inside final approval.
 -- Sequence values are consumed. Company-role assignments and employees are not changed.
 SET SERVEROUTPUT ON
 SET VERIFY OFF
@@ -18,6 +19,7 @@ DECLARE
     l_type NUMBER;
     l_count NUMBER;
     l_leave NUMBER;
+    l_allocation_id NUMBER;
     l_cases NUMBER := 0;
 
     PROCEDURE assert_true(p_ok BOOLEAN, p_message VARCHAR2) IS
@@ -74,6 +76,7 @@ DECLARE
         l_count NUMBER;
         l_finals NUMBER;
         l_actual VARCHAR2(200);
+        l_balance_before NUMBER;
     BEGIN
         SAVEPOINT decision_case;
         l_id := new_request(p_empid);
@@ -81,6 +84,10 @@ DECLARE
         assert_true(l_count = 0, 'Draft has no history');
         pkg_leave_approval.submit_request(l_id, l_company, p_empid);
         assert_request(l_id, 'F', 'F');
+        SELECT balance_days INTO l_balance_before FROM v_leave_year_balance
+         WHERE empid = p_empid AND leave_type_id = l_type AND leave_year = 2099;
+        SELECT COUNT(*) INTO l_count FROM leave_consumption WHERE leave_id = l_id;
+        assert_true(l_count = 0, 'Submitting a request does not consume leave');
         SELECT LISTAGG(approver_level, ',') WITHIN GROUP (ORDER BY approver_level), COUNT(*)
           INTO l_actual, l_finals FROM leave_app_history
          WHERE leave_id = l_id AND approver_level IN ('HOD', 'PLANT_HEAD', 'MANAGING_DIRECTOR');
@@ -98,6 +105,8 @@ DECLARE
             expect_action_error(l_id, l_company, l_actor, 'APPROVE', -20817);
             pkg_leave_approval.take_action(l_id, l_company, l_rp_actor, 'APPROVE', 'RP recommendation');
             assert_request(l_id, 'F', 'F');
+            SELECT COUNT(*) INTO l_count FROM leave_consumption WHERE leave_id = l_id;
+            assert_true(l_count = 0, 'RP recommendation does not consume leave');
             expect_action_error(l_id, l_company, l_rp_actor, 'APPROVE', -20817);
         END IF;
         SELECT COUNT(*) INTO l_count FROM leave_app_history
@@ -111,9 +120,23 @@ DECLARE
             SELECT COUNT(*) INTO l_count FROM leave_app_history
              WHERE leave_id = l_id AND approval_status IN ('PENDING', 'WAITING');
             assert_true(l_count = 0, 'Rejection closes every open step');
+            SELECT COUNT(*) INTO l_count FROM leave_consumption WHERE leave_id = l_id;
+            assert_true(l_count = 0, 'Rejection does not consume leave');
             expect_action_error(l_id, l_company, l_hrd, 'RECORD', -20817);
         ELSE
             assert_request(l_id, 'A', 'A');
+            SELECT COUNT(*) INTO l_count FROM leave_consumption
+             WHERE leave_id = l_id AND empid = p_empid AND leave_type_id = l_type
+               AND consumed_days = 1 AND consum_year = 2099
+               AND ent_by = l_actor AND com_id = l_company;
+            assert_true(l_count = 1, 'Final approval posts the approved quantity once');
+            SELECT COUNT(*) INTO l_count FROM v_leave_year_balance
+             WHERE empid = p_empid AND leave_type_id = l_type AND leave_year = 2099
+               AND balance_days = l_balance_before - 1;
+            assert_true(l_count = 1, 'Balance decreases immediately after final approval');
+            post_leave_consumption(l_id, l_company, l_actor);
+            SELECT COUNT(*) INTO l_count FROM leave_consumption WHERE leave_id = l_id;
+            assert_true(l_count = 1, 'Safe posting retry does not deduct twice');
             SELECT COUNT(*) INTO l_count FROM leave_app_history
              WHERE leave_id = l_id AND approver_level IN ('HOD', 'PLANT_HEAD', 'MANAGING_DIRECTOR')
                AND approval_status = 'APPROVED';
@@ -133,6 +156,8 @@ DECLARE
              WHERE leave_id = l_id AND approver_level = 'LEAVE_RECORD'
                AND approval_status = 'RECORDED' AND approval_date IS NOT NULL AND upd_by = l_hrd;
             assert_true(l_count = 1, 'HRD recording is separate and audited');
+            SELECT COUNT(*) INTO l_count FROM leave_consumption WHERE leave_id = l_id;
+            assert_true(l_count = 1, 'HRD recording does not post again');
             expect_action_error(l_id, l_company, l_hrd, 'RECORD', -20817);
         END IF;
         expect_action_error(l_id, l_company, l_actor, 'APPROVE', -20817);
@@ -165,8 +190,26 @@ BEGIN
     SELECT COUNT(*) INTO l_count FROM hod WHERE hod_id = l_employee AND UPPER(TRIM(status)) = 'ACTIVE';
     assert_true(l_count = 0, 'Ordinary applicant is not a HOD');
     SELECT MIN(lt_id) INTO l_type FROM leave_types
-     WHERE active_flag = 'Y' AND (com_id = l_company OR com_id IS NULL);
+     WHERE active_flag = 'Y' AND lt_id > 0 AND (com_id = l_company OR com_id IS NULL);
     assert_true(l_type IS NOT NULL, 'Active leave type');
+
+    -- Each applicant gets 100 days of spare test balance, preserving any native
+    -- 2099 usage in the fixture. All allocation changes roll back at the end.
+    FOR person IN (SELECT id FROM employees WHERE id IN (l_employee, l_hod, l_plant)) LOOP
+        SELECT COUNT(*) INTO l_count FROM leave_allocation
+         WHERE empid = person.id AND leave_type_id = l_type AND allocation_year = 2099;
+        IF l_count = 0 THEN
+            SELECT LEAST(NVL(MIN(allocation_id), 0), 0) - 1 INTO l_allocation_id FROM leave_allocation;
+            INSERT INTO leave_allocation (allocation_id, empid, leave_type_id,
+                allocated_days, allocation_year, allocated_date, com_id)
+            VALUES (l_allocation_id, person.id, l_type, 0, 2099, DATE '2099-01-01', l_company);
+        END IF;
+        UPDATE leave_allocation
+           SET allocated_days = 100 + (SELECT NVL(SUM(c.consumed_days), 0)
+                 FROM leave_consumption c WHERE c.empid = person.id
+                   AND c.leave_type_id = l_type AND c.consum_year = 2099)
+         WHERE empid = person.id AND leave_type_id = l_type AND allocation_year = 2099;
+    END LOOP;
 
     run_decision(l_employee, 'HOD', 'HOD,PLANT_HEAD', TRUE);
     run_decision(l_employee, 'PLANT_HEAD', 'HOD,PLANT_HEAD', TRUE);
@@ -249,9 +292,66 @@ BEGIN
     END;
     ROLLBACK TO negative_case;
 
+    SAVEPOINT negative_case;
+    l_leave := new_request(l_employee);
+    pkg_leave_approval.submit_request(l_leave, l_company, l_employee);
+    pkg_leave_approval.take_action(l_leave, l_company, l_rp, 'APPROVE', 'Recommend');
+    UPDATE leave_allocation SET allocated_days = 0
+     WHERE empid = l_employee AND leave_type_id = l_type AND allocation_year = 2099;
+    expect_action_error(l_leave, l_company, l_hod, 'APPROVE', -20836);
+    assert_request(l_leave, 'F', 'F');
+    SELECT COUNT(*) INTO l_count FROM leave_app_history
+     WHERE leave_id = l_leave AND approver_level = 'HOD' AND approval_status = 'PENDING';
+    assert_true(l_count = 1, 'Insufficient balance rolls back the final approval');
+    SELECT COUNT(*) INTO l_count FROM leave_consumption WHERE leave_id = l_leave;
+    assert_true(l_count = 0, 'Insufficient balance leaves no consumption');
+    ROLLBACK TO negative_case;
+
+    SAVEPOINT negative_case;
+    l_leave := new_request(l_employee);
+    pkg_leave_approval.submit_request(l_leave, l_company, l_employee);
+    pkg_leave_approval.take_action(l_leave, l_company, l_rp, 'APPROVE', 'Recommend');
+    DELETE FROM leave_allocation
+     WHERE empid = l_employee AND leave_type_id = l_type AND allocation_year = 2099;
+    expect_action_error(l_leave, l_company, l_hod, 'APPROVE', -20834);
+    assert_request(l_leave, 'F', 'F');
+    ROLLBACK TO negative_case;
+
+    SAVEPOINT negative_case;
+    l_leave := new_request(l_employee);
+    UPDATE leave_request SET l_start_date = DATE '2099-12-31',
+           l_end_date = DATE '2100-01-02', proposed_days = 3 WHERE leave_id = l_leave;
+    pkg_leave_approval.submit_request(l_leave, l_company, l_employee);
+    pkg_leave_approval.take_action(l_leave, l_company, l_rp, 'APPROVE', 'Recommend');
+    pkg_leave_approval.take_action(l_leave, l_company, l_hod, 'APPROVE', 'Final cross-year leave');
+    SELECT COUNT(*) INTO l_count FROM leave_consumption
+     WHERE leave_id = l_leave AND consumed_days = 3 AND consum_year = 2099
+       AND start_date = DATE '2099-12-31' AND end_date = DATE '2100-01-02';
+    assert_true(l_count = 1, 'Full cross-year quantity is charged only to start year');
+    BEGIN
+        INSERT INTO leave_consumption (leave_id, empid, leave_type_id, consumed_days, consum_year)
+        VALUES (l_leave, l_employee, l_type, 3, 2099);
+        RAISE_APPLICATION_ERROR(-20994, 'Duplicate linked consumption unexpectedly succeeded.');
+    EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL;
+    END;
+    ROLLBACK TO negative_case;
+
+    SAVEPOINT negative_case;
+    l_leave := new_request(l_employee);
+    pkg_leave_approval.submit_request(l_leave, l_company, l_employee);
+    pkg_leave_approval.take_action(l_leave, l_company, l_rp, 'APPROVE', 'Recommend');
+    INSERT INTO leave_consumption
+        (empid, leave_type_id, consumed_days, start_date, end_date, consum_year, com_id)
+    VALUES (l_employee, l_type, 1, DATE '2099-01-01', DATE '2099-01-01', 2099, l_company);
+    expect_action_error(l_leave, l_company, l_hod, 'APPROVE', -20838);
+    assert_request(l_leave, 'F', 'F');
+    SELECT COUNT(*) INTO l_count FROM leave_consumption WHERE leave_id = l_leave;
+    assert_true(l_count = 0, 'Unlinked manual usage is not silently posted twice');
+    ROLLBACK TO negative_case;
+
     ROLLBACK TO approval_test_start;
     DBMS_OUTPUT.PUT_LINE('Completed decision cases: ' || l_cases || '; negative/legacy/mapping tests also passed.');
-    DBMS_OUTPUT.PUT_LINE('All request/history and temporary RP/HOD changes rolled back.');
+    DBMS_OUTPUT.PUT_LINE('All request/history/consumption, allocation and RP/HOD changes rolled back.');
 EXCEPTION WHEN OTHERS THEN
     ROLLBACK TO approval_test_start;
     RAISE;
