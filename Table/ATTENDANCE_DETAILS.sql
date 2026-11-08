@@ -1,0 +1,72 @@
+CREATE TABLE ATTENDANCE_DETAILS
+(
+  ATTENDANCE_ID     NUMBER,
+  EMP_ID            NUMBER,
+  ATTENDANCE_DATE   DATE,
+  DAYOFWEEK         VARCHAR2(20 BYTE),
+  REGULAR_IN_TIME   DATE,
+  REGULAR_OUT_TIME  DATE,
+  SHIFT_START_TIME  DATE,
+  SHIFT_END_TIME    DATE,
+  STATUS            VARCHAR2(20 BYTE),
+  IN_TIME           DATE,
+  OUT_TIME          DATE,
+  LATE_IN           VARCHAR2(10 BYTE),
+  EARLY_OUT         VARCHAR2(10 BYTE),
+  IN_LOCATION       VARCHAR2(50 BYTE),
+  OUT_LOCATION      VARCHAR2(50 BYTE),
+  REMARKS           VARCHAR2(255 BYTE),
+  COM_ID            NUMBER,
+  WEEKEND           NUMBER,
+  NEXTDAY           NUMBER,
+  HOLIDAY           NUMBER,
+  DUTY_HOURS        VARCHAR2(30 BYTE),
+  MC_ID             NUMBER
+)
+TABLESPACE HRMS
+PCTUSED    0
+PCTFREE    10
+INITRANS   1
+MAXTRANS   255
+STORAGE    (
+            INITIAL          64K
+            NEXT             1M
+            MINEXTENTS       1
+            MAXEXTENTS       UNLIMITED
+            PCTINCREASE      0
+            BUFFER_POOL      DEFAULT
+           )
+LOGGING 
+NOCOMPRESS 
+NOCACHE;
+
+
+ALTER TABLE ATTENDANCE_DETAILS ADD (
+  PRIMARY KEY
+  (ATTENDANCE_ID)
+  USING INDEX
+    TABLESPACE HRMS
+    PCTFREE    10
+    INITRANS   2
+    MAXTRANS   255
+    STORAGE    (
+                INITIAL          64K
+                NEXT             1M
+                MINEXTENTS       1
+                MAXEXTENTS       UNLIMITED
+                PCTINCREASE      0
+                BUFFER_POOL      DEFAULT
+               )
+  ENABLE VALIDATE);
+
+
+--  There is no statement for index HRMS.SYS_C0019459.
+--  The object is created when the parent object is created.
+
+ALTER TABLE ATTENDANCE_DETAILS ADD (
+  FOREIGN KEY (EMP_ID) 
+  REFERENCES EMPLOYEES (ID)
+  ENABLE VALIDATE
+,  FOREIGN KEY (COM_ID) 
+  REFERENCES COMPANY (ID)
+  ENABLE VALIDATE);
