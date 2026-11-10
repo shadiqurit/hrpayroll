@@ -2,7 +2,8 @@ CREATE OR REPLACE PROCEDURE HRMS.p_att_update_details
 (
     p_from_date IN DATE DEFAULT NULL,
     p_to_date   IN DATE DEFAULT NULL,
-    p_commit    IN NUMBER DEFAULT 1
+    p_commit    IN NUMBER DEFAULT 1,
+    p_emp_id    IN NUMBER DEFAULT NULL
 )
 IS
     /*
@@ -92,6 +93,7 @@ USING
 
          WHERE previous_shift.attendance_date >= l_from_date
            AND previous_shift.attendance_date <  l_to_date
+           AND (p_emp_id IS NULL OR previous_shift.emp_id = p_emp_id)
 
            AND next_shift.attendance_date >= l_from_date
            AND next_shift.attendance_date <  l_to_date
@@ -471,6 +473,7 @@ WHEN MATCHED THEN
 
              WHERE d.attendance_date >= l_from_date
                AND d.attendance_date <  l_to_date
+               AND (p_emp_id IS NULL OR d.emp_id = p_emp_id)
         ),
 
         calculated_data AS

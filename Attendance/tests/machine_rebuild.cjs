@@ -123,8 +123,8 @@ function merges(file) {
 }
 const procedures = new Map(['P_ATT_SCHEDULE.sql', 'P_ATT_CONT_SHIFT_FAST.sql', 'P_ATT_UPDATE_DETAILS.sql']
     .map(name => [name, merges(name)]));
-function run(file, from, to) {
-    const values = { l_from_date: from, l_to_date: to + 1, p_emp_id: null };
+function run(file, from, to, empId = null) {
+    const values = { l_from_date: from, l_to_date: to + 1, p_emp_id: empId };
     for (const merge of procedures.get(file)) {
         for (const row of execute(merge.query, values)) {
             const targets = row.attendance_id == null
@@ -242,6 +242,16 @@ assert.equal(row.remarks, 'Weekly Holiday');
 diagnostic = diagnose(2, '2026-08-21');
 assert.ok(diagnostic.some(r => r.raw_punch === '2026-08-21 14:01:00' && r.selection === 'NO_MATCHING_WINDOW'));
 
+// Manual approval recalculates one employee without changing other applicants.
+db.exec("UPDATE attendance_details SET duty_hours='untouched' WHERE emp_id=3");
+const otherBefore = JSON.stringify(db.prepare('SELECT * FROM attendance_details WHERE emp_id=3').all());
+execute('UPDATE attendance_details SET in_time=:start,out_time=:end WHERE emp_id=1 AND attendance_date=:date',
+    { start: day('2026-08-10T09:00:00'), end: day('2026-08-10T17:00:00'), date: old }, 'run');
+run('P_ATT_UPDATE_DETAILS.sql', old, old, 1);
+assert.equal(attendance(1, '2026-08-10').duty_hours, '8:00');
+assert.equal(JSON.stringify(db.prepare('SELECT * FROM attendance_details WHERE emp_id=3').all()), otherBefore,
+    'Scoped metric refresh leaves other employees unchanged');
+
 db.exec('DELETE FROM office_schedule');
 assert.equal(db.prepare('SELECT COUNT(*) AS n FROM v_att_gen1').get().n, 0, 'Empty configuration yields no invalid date seed');
-console.log('PASS: actual SQL for historical upsert, repeat rebuilds, punch edits/status changes/deletion, next-day office shifts, branch weekends, continuous boundaries at range edges, bridge-before-metrics, working-to-holiday resets, and read-only diagnosis of selected/excluded/unmatched punches. Oracle PL/SQL runtime and transactions remain unverified.');
+console.log('PASS: actual SQL for historical upsert, repeat rebuilds, punch edits/status changes/deletion, next-day office shifts, branch weekends, continuous boundaries at range edges, bridge-before-metrics, working-to-holiday resets, employee-scoped recalculation, and read-only diagnosis of selected/excluded/unmatched punches. Oracle PL/SQL runtime and transactions remain unverified.');

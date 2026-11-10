@@ -1,8 +1,10 @@
 # Historical attendance rebuild
 
-The machine-data foundation is prepared here. Full leave, short-leave and manual
-attendance integration is still pending their source definitions and priority
-rules. **Do not use a machine-only rebuild to repair records containing manual
+The machine-data foundation is prepared here. The manual attendance approval,
+pending/status reports, posting and machine-plus-manual rebuild are now in
+[manualAttendance/README.md](manualAttendance/README.md). Full leave and short-leave
+attendance integration still needs source definitions and priority rules.
+**Do not use a machine-only rebuild to repair records containing manual
 overrides or leave adjustments:** it reconstructs IN/OUT from machine data and
 calculates H/W/G/P/A using the existing rules.
 
@@ -77,8 +79,11 @@ authoritative sources, in this order, with manual/leave priority agreed first:
    commit an independent complete rebuild.
 
 These manual/leave stages are **not implemented** by the machine-only wrapper.
-Please supply the manual-attendance and short-leave DDL, approval/cancellation
-values, and the rule for full-day approved leave when machine punches exist.
+For machine plus approved manual corrections, use `P_ATT_REBUILD_MANUAL` after
+installing the manual approval module. Its explicit approved boundaries take
+priority over machine/continuous derivation; omitted boundaries retain machine
+values. Leave/short-leave replay remains separate. Please supply short-leave DDL,
+approval/cancellation values, and the rule for full-day approved leave when machine punches exist.
 The repository has `LEAVE_REQUEST` already, but the required attendance status
 for each leave type and its priority still need confirmation.
 

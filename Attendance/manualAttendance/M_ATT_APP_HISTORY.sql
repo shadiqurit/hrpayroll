@@ -1,3 +1,4 @@
+-- New database definition only. For existing data run INSTALL_MANUAL_APPROVAL.sql.
 CREATE TABLE M_ATT_APP_HISTORY
 (
   ID               NUMBER                       NOT NULL,
@@ -26,8 +27,8 @@ STORAGE    (
             PCTINCREASE      0
             BUFFER_POOL      DEFAULT
            )
-LOGGING 
-NOCOMPRESS 
+LOGGING
+NOCOMPRESS
 NOCACHE;
 
 
@@ -53,20 +54,8 @@ ALTER TABLE M_ATT_APP_HISTORY ADD (
 --  There is no statement for index HRMS.SYS_C0020023.
 --  The object is created when the parent object is created.
 
-CREATE OR REPLACE TRIGGER trg_m_att_app_history_pk
-    BEFORE INSERT OR UPDATE
-    ON m_att_app_history
-    FOR EACH ROW
-BEGIN
-    IF :new.id IS NULL
-    THEN
-        SELECT NVL (MAX (id), 0) + 1 INTO :new.id FROM m_att_app_history;
-    END IF;
-END;
-/
-
-
+@@TRG_M_ATT_APP_HISTORY_PK.sql
 ALTER TABLE M_ATT_APP_HISTORY ADD (
-  FOREIGN KEY (M_ATT_ID) 
+  FOREIGN KEY (M_ATT_ID)
   REFERENCES MANUAL_ATT (ID)
   ENABLE VALIDATE);
