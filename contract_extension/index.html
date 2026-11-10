@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contract Extension Letter</title>
+    <style>
+        body {
+            font-family: 'Times New Roman', Times, serif;
+            background-color: #e9ecef;
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+            margin: 0;
+            color: #000;
+        }
+        .a4-page {
+            background-color: #ffffff;
+            width: 210mm;
+            min-height: 297mm;
+            max-height: 297mm; /* Ensures it does not exceed A4 height */
+            padding: 20mm; /* Adjusted padding to save space */
+            box-sizing: border-box;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            line-height: 1.3; /* Reduced line height */
+            font-size: 12pt; /* Reduced text size */
+            overflow: hidden; /* Prevents spilling to next page */
+        }
+        .header {
+            margin-bottom: 15px; /* Reduced spacing */
+        }
+        .header div {
+            margin-bottom: 2px;
+        }
+        .subject {
+            font-weight: bold;
+            margin: 15px 0; /* Reduced spacing */
+        }
+        .salutation-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 15px; /* Reduced spacing */
+        }
+        .body-text {
+            text-align: justify;
+            margin-bottom: 10px; /* Reduced spacing */
+        }
+        .terms-list {
+            list-style-type: decimal-leading-zero;
+            padding-left: 35px;
+            margin-bottom: 15px; /* Reduced spacing */
+            margin-top: 0;
+        }
+        .terms-list li {
+            margin-bottom: 4px; /* Reduced the extra gap between list items */
+            text-align: justify;
+        }
+        .sign-off {
+            margin-top: 15px;
+            margin-bottom: 15px;
+        }
+        .bottom-layout {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-top: 10px;
+        }
+        .cc-section {
+            width: 50%;
+        }
+        .cc-list {
+            list-style-type: decimal-leading-zero;
+            padding-left: 25px;
+            margin-top: 5px;
+            margin-bottom: 0;
+        }
+        .cc-list li {
+            margin-bottom: 1px; /* Tighter CC list */
+        }
+        .signature {
+            width: 40%;
+            text-align: left;
+            line-height: 1.3;
+            margin-top: 40px; /* Adjusted signature space to ensure it fits */
+        }
+
+        /* Print-specific CSS for exact A4 rendering */
+        @media print {
+            @page {
+                size: A4;
+                margin: 0; 
+            }
+            body {
+                background-color: #ffffff;
+                padding: 0;
+                display: block;
+            }
+            .a4-page {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 20mm;
+                box-shadow: none;
+                page-break-after: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="a4-page">
+        <div class="header">
+            <div>Human Resource Department</div>
+            <div>Ref: IPI/HRD/Internal-02/2026/1684</div>
+            <br>
+            <div>Jb.</div>
+            <div>Staff No # IPΙ-,</div>
+            <div>Deputy Manager, ICT,</div>
+            <div>The IBN SINA Pharmaceutical Industry PLC,</div>
+            <div>03 Asadgate, Mohammadpur, Dhaka-1207.</div>
+        </div>
+
+        <div class="subject">
+            Subject: Contract Extention for 01 year.
+        </div>
+
+        <div class="salutation-row">
+            <div>
+                Janab,<br>
+                Assalamu Alaikum Wa Rahmatullah
+            </div>
+            <div>
+                Date: 20.09.2026
+            </div>
+        </div>
+
+        <div class="body-text">
+            The Management of The IBN SINA Pharmaceutical Industry PLC has been decided to extend your contractual job as Deputy Manager, Share on the following terms & conditions :-
+        </div>
+
+        <ol class="terms-list">
+            <li>The contract has been extended for a period of 01 (One) year with effect from 03.08.2026;</li>
+            <li>Your salary and other benefits will remain unchanged;</li>
+            <li>During contract period, your service is terminable (in writing) by either side without giving any prior notice and this cannot be challenged legally in any form;</li>
+            <li>You shall not be directly or indirectly engaged in any other employment outside organization and beyond your assigned responsibilities;</li>
+            <li>You will be entitled to 10 days Casual, 14 days Sick and 24 days Earned leave per year on pro rata basis. You will also be entitled weekly holiday/s' as per existing rules of the organization;</li>
+            <li>Your position is subject to transfer within any work-station/ divisions (or any other upcoming projects) of IBN SINA Pharma & its subsidiary companies situated anywhere in Bangladesh;</li>
+            <li>Subsequent advancement in your career will be related directly to the merits of your own performance on the job, your potentiality and professional honesty;</li>
+            <li>After completion of this contract period, considering all, the management will take appropriate measure (i.e., Job confirmation/ Contract extension/ Contract cancellation) as per rule:</li>
+            <li>You will be governed by the rules and regulations of the IPI PLC in vogue or as amended from time to time by the Board of Directors of the Company.</li>
+        </ol>
+
+        <div class="sign-off">
+            May Allah, the Almighty, help us all. Ameen.<br>
+            Ma-Assalam.
+        </div>
+
+        <div class="bottom-layout">
+            <div class="signature">
+                Prof. Dr. A K M Sadrul Islam<br>
+                Managing Director
+            </div>
+
+            <div class="cc-section">
+                CC to:
+                <ol class="cc-list">
+                    <li>Executive Director (Plants),</li>
+                    <li>Executive Director (Admin),</li>
+                    <li>DGM & Head of Share;</li>
+                    <li>Accounts Deptt. (Pay Roll section);</li>
+                    <li>Personal file:</li>
+                    <li>Office Copy.</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
