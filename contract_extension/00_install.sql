@@ -9,11 +9,10 @@ DECLARE
     l_count PLS_INTEGER;
 BEGIN
     SELECT COUNT(*) INTO l_count FROM user_tables
-     WHERE table_name IN ('HR_EMPLOYEE_CONTRACT', 'HR_CONTRACT_RENEWAL',
-        'HR_EMPLOYEE_ACTION', 'HR_EMPLOYEE_LETTER', 'HR_LETTER_TEMPLATE',
+     WHERE table_name IN ('HR_EMPLOYEE_ACTION', 'HR_EMPLOYEE_LETTER', 'HR_LETTER_TEMPLATE',
         'HR_LETTER_SIGNATORY', 'HR_LETTER_RECIPIENT', 'EMPLOYEES',
-        'EMP_SALARY_STRUCTURE', 'ALLOWANCE_HEAD', 'USERS_COMPANY');
-    IF l_count <> 11 THEN
+        'USERS_COMPANY');
+    IF l_count <> 7 THEN
         RAISE_APPLICATION_ERROR(-20799, 'Install the existing contract renewal and HR tables before extension.');
     END IF;
 END;

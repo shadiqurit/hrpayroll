@@ -5,8 +5,10 @@
    Page template: Blank with Attributes (or Minimal)
    Required protected items: P525_EXTENSION_ID, P525_COM_ID
    Authorization: CONTRACT_EXTEND_VIEW
-   Region type: PL/SQL Dynamic Content
-   Escape Special Characters: No
+   Region type: PL/SQL Dynamic Content (Legacy / HTP-based).
+   Use the HTP-based region for this source, not CLOB-returning Dynamic Content.
+   Source: copy the complete DECLARE ... END; block below.
+   The region supplies Back to List and Print buttons; no submit process.
 
    Add this page-level JavaScript function:
 
@@ -254,7 +256,7 @@ BEGIN
                "Kalpurush", "Arial Unicode MS", sans-serif;
 }
 .contract-shell.en { font-family: Georgia, "Times New Roman", serif; }
-.contract-toolbar { display: flex; justify-content: flex-end; margin: 0 0 12px; }
+.contract-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 12px; }
 .contract-page {
   position: relative; width: 210mm; min-height: 297mm; margin: 0 auto;
   padding: 26mm 15mm 12mm; background: #fff; border: 1px solid #d7dce1;
@@ -315,7 +317,11 @@ BEGIN
     HTP.P('<div class="contract-shell '
           || CASE WHEN L_IS_BENGALI THEN 'bn' ELSE 'en' END
           || '" lang="' || CASE WHEN L_IS_BENGALI THEN 'bn' ELSE 'en' END || '">');
-    HTP.P('<div class="contract-toolbar"><button type="button" '
+    HTP.P('<div class="contract-toolbar"><a class="t-Button" href="'
+          || APEX_ESCAPE.HTML_ATTRIBUTE(APEX_PAGE.GET_URL(
+              P_PAGE => 523, P_CLEAR_CACHE => '523',
+              P_ITEMS => 'P523_COM_ID', P_VALUES => TO_CHAR(:P525_COM_ID)))
+          || '">Back to List</a><button type="button" '
           || 'class="t-Button t-Button--hot" onclick="printContractLetter();">'
           || '<span class="fa fa-print" aria-hidden="true"></span> '
           || CASE WHEN L_IS_BENGALI
@@ -396,41 +402,45 @@ BEGIN
         EMIT_SEGMENT(1, DBMS_LOB.GETLENGTH(L_BODY));
     END IF;
 
-    HTP.P('<div class="salary-block">');
-    FOR R IN (
-        SELECT D.HEADCODE,
-               NVL(D.HEAD_NAME, NVL(AH.HEAD_NAME, D.HEADCODE)) HEAD_NAME,
-               D.NEW_AMOUNT
-          FROM HR_CONTRACT_EXTENSION_SALARY D
-          LEFT JOIN ALLOWANCE_HEAD AH ON AH.HEAD_ID = D.SLNO
-         WHERE D.EXTENSION_ID = L_EXTENSION_ID
-           AND D.INCLUDE_IN_LETTER = 'Y'
-           AND NVL(D.HEAD_TYPE, NVL(AH.HEAD_TYPE, 'EARNING')) = 'EARNING'
-           AND NVL(D.NEW_AMOUNT, 0) <> 0
-         ORDER BY NVL(D.PRINT_ORDER, NVL(AH.PRINT_ORDER, D.SLNO)), D.SLNO
-    ) LOOP
-        L_ROW_COUNT := L_ROW_COUNT + 1;
-        L_TOTAL := L_TOTAL + NVL(R.NEW_AMOUNT, 0);
-        HTP.P('<div class="salary-line"><div class="salary-label">'
-              || ESC(CASE WHEN L_IS_BENGALI
-                          THEN BN_HEAD_NAME(R.HEADCODE, R.HEAD_NAME)
-                          ELSE R.HEAD_NAME END)
-              || '</div><div class="salary-colon">:</div><div class="salary-amount">'
-              || DISPLAY_MONEY(R.NEW_AMOUNT) || '</div></div>');
-    END LOOP;
+    /* Historical letters may contain a saved salary token. New date-only
+       letters do not; omit the entire salary block for them. */
+    IF L_TOKEN_POS > 0 THEN
+        HTP.P('<div class="salary-block">');
+        FOR R IN (
+            SELECT D.HEADCODE,
+                   NVL(D.HEAD_NAME, NVL(AH.HEAD_NAME, D.HEADCODE)) HEAD_NAME,
+                   D.NEW_AMOUNT
+              FROM HR_CONTRACT_EXTENSION_SALARY D
+              LEFT JOIN ALLOWANCE_HEAD AH ON AH.HEAD_ID = D.SLNO
+             WHERE D.EXTENSION_ID = L_EXTENSION_ID
+               AND D.INCLUDE_IN_LETTER = 'Y'
+               AND NVL(D.HEAD_TYPE, NVL(AH.HEAD_TYPE, 'EARNING')) = 'EARNING'
+               AND NVL(D.NEW_AMOUNT, 0) <> 0
+             ORDER BY NVL(D.PRINT_ORDER, NVL(AH.PRINT_ORDER, D.SLNO)), D.SLNO
+        ) LOOP
+            L_ROW_COUNT := L_ROW_COUNT + 1;
+            L_TOTAL := L_TOTAL + NVL(R.NEW_AMOUNT, 0);
+            HTP.P('<div class="salary-line"><div class="salary-label">'
+                  || ESC(CASE WHEN L_IS_BENGALI
+                              THEN BN_HEAD_NAME(R.HEADCODE, R.HEAD_NAME)
+                              ELSE R.HEAD_NAME END)
+                  || '</div><div class="salary-colon">:</div><div class="salary-amount">'
+                  || DISPLAY_MONEY(R.NEW_AMOUNT) || '</div></div>');
+        END LOOP;
 
-    IF L_ROW_COUNT = 0 THEN
-        HTP.P('<div>' || CASE WHEN L_IS_BENGALI
-                             THEN 'বেতন-ভাতার বিবরণ পাওয়া যায়নি।'
-                             ELSE 'No monthly salary or allowances are recorded for this extension.' END
-              || '</div>');
-    ELSE
-        HTP.P('<div class="salary-line salary-total"><div class="salary-label">'
-              || CASE WHEN L_IS_BENGALI THEN 'মোট' ELSE 'Total' END || '</div>'
-              || '<div class="salary-colon">=</div><div class="salary-amount">'
-              || DISPLAY_MONEY(L_TOTAL) || '</div></div>');
+        IF L_ROW_COUNT = 0 THEN
+            HTP.P('<div>' || CASE WHEN L_IS_BENGALI
+                                 THEN 'বেতন-ভাতার বিবরণ পাওয়া যায়নি।'
+                                 ELSE 'No monthly salary or allowances are recorded for this extension.' END
+                  || '</div>');
+        ELSE
+            HTP.P('<div class="salary-line salary-total"><div class="salary-label">'
+                  || CASE WHEN L_IS_BENGALI THEN 'মোট' ELSE 'Total' END || '</div>'
+                  || '<div class="salary-colon">=</div><div class="salary-amount">'
+                  || DISPLAY_MONEY(L_TOTAL) || '</div></div>');
+        END IF;
+        HTP.P('</div>');
     END IF;
-    HTP.P('</div>');
 
     IF L_TOKEN_POS > 0 THEN
         L_AFTER_TOKEN := L_TOKEN_POS + LENGTH('#SALARY_DETAILS#');
@@ -475,9 +485,11 @@ BEGIN
     HTP.P('</div>');
     HTP.P('<footer class="contract-footer">'
           || ESC(L_COMPANY) || ' | ' || ESC(L_EXTENSION_NO)
-          || CASE WHEN L_IS_BENGALI THEN ' | মেয়াদ: ' ELSE ' | Term: ' END
-          || ESC(DISPLAY_DATE(L_NEW_FROM))
-          || ' - ' || ESC(DISPLAY_DATE(L_NEW_TO))
+          || CASE WHEN L_TOKEN_POS > 0
+                  THEN CASE WHEN L_IS_BENGALI THEN ' | মেয়াদ: ' ELSE ' | Term: ' END
+                       || ESC(DISPLAY_DATE(L_NEW_FROM)) || ' - ' || ESC(DISPLAY_DATE(L_NEW_TO))
+                  ELSE CASE WHEN L_IS_BENGALI THEN ' | স্থায়ীকরণের নির্ধারিত তারিখ: '
+                            ELSE ' | Confirmation due date: ' END || ESC(DISPLAY_DATE(L_NEW_TO)) END
           || CASE WHEN L_LETTER_STATUS = 'ISSUED'
                   THEN CASE WHEN L_IS_BENGALI THEN ' | চূড়ান্ত' ELSE ' | Final' END
                   ELSE '' END

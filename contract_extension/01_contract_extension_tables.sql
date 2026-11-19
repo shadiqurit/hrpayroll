@@ -1,5 +1,5 @@
-/* Extension tables only. Use the existing shared HR_EMPLOYEE_CONTRACT
-   from contract renewal; do not recreate or rename it. */
+/* Confirmation extension history only. Existing contracts remain untouched.
+   Legacy start-date and salary columns are retained for compatibility. */
 CREATE TABLE HRMS.HR_CONTRACT_EXTENSION
 (
     EXTENSION_ID            NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -112,6 +112,8 @@ CREATE INDEX HRMS.IX_HR_CON_EXT_STATUS_DATE
     ON HRMS.HR_CONTRACT_EXTENSION (STATUS, NEW_FROM_DATE);
 
 
+/* Retained for compatibility and historical issued letters only.
+   Date-only extensions never read or write salary snapshots. */
 CREATE TABLE HRMS.HR_CONTRACT_EXTENSION_SALARY
 (
     EXTENSION_SALARY_ID   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -156,10 +158,10 @@ ALTER TABLE HRMS.HR_CONTRACT_EXTENSION ADD CONSTRAINT FK_HR_CON_EXT_ACTION
     FOREIGN KEY (ACTION_ID) REFERENCES HRMS.HR_EMPLOYEE_ACTION (ACTION_ID);
 
 COMMENT ON TABLE HRMS.HR_CONTRACT_EXTENSION IS
-    'Simple contract extension header: editable draft followed by final post.';
+    'Confirmation extension history: old/new due dates, reason, user and timestamp. DRAFT then POSTED.';
 COMMENT ON TABLE HRMS.HR_CONTRACT_EXTENSION_SALARY IS
-    'Immutable old salary snapshot plus proposed salary used by extension posting and letter.';
+    'Legacy salary snapshots retained for historical letters. Not used by date-only extensions.';
 COMMENT ON COLUMN HRMS.HR_CONTRACT_EXTENSION.STATUS IS
     'DRAFT is editable; POSTED is final.';
 COMMENT ON COLUMN HRMS.HR_CONTRACT_EXTENSION.SALARY_MODE IS
-    'MANUAL only: copy live amounts unchanged; HR enters every proposed change.';
+    'Legacy compatibility value MANUAL. Date-only extensions never change payroll.';

@@ -1,126 +1,60 @@
-# Contract extension — separate from contract renewal
+# Simple contract extension
 
-| Module | Pages | Rule |
+**Select employee → enter extended confirmation date/reason → Save → List → Print.**
+
+Only EMPLOYEES.CONFIRMATION_DUE_DATE changes. Every other employee field, salary,
+benefit and contract record remains unchanged. Extension history records the old
+and new date, reason and user/time.
+
+## Build the three Oracle APEX pages
+
+Follow [APEX_PAGE_BY_PAGE.md](APEX_PAGE_BY_PAGE.md) for exact items, SQL blocks,
+dynamic action settings, the Save process and page links.
+
+| Page | Purpose | Source |
 |---|---|---|
-| Existing contract renewal | 520 / 521 / 522 | Existing benefit and salary-increase rules remain in contractual/ |
-| Contract extension | 523 / 524 / 525 | Extend the term; grant no automatic increase or benefit |
+| 523 | Extension list with New Extension and Print Letter | page_523_contract_extension_register.sql |
+| 524 | Employee selection and one Save Extension button | page_524_contract_extension_entry.sql |
+| 525 | A4 letter with Print and Back to List | page_525_contract_extension_letter.sql |
 
-The original renewal sources have been restored. This folder adds the separate
-extension module, with its own package, tables, action type, letter templates,
-number sequence and page items.
+The user does not create/save drafts or perform a separate final submission.
+The list shows completed extensions. The form has employee, new confirmation due
+date, reason and a defaulted letter signatory; current employee/date are read-only.
 
-## Three simple pages
+## Database setup
 
-| Page | Name | Layout and actions |
-|---:|---|---|
-| 523 | Contract Extension Register | Company/due-date filters, due employees, extension register, Prepare Extension, New Extension |
-| 524 | Contract Extension Entry | Employee/current term, extended dates, optional manual amounts, additional terms/signatory; Save Draft and Final Submit |
-| 525 | Contract Extension Letter | Same A4 letter layout as renewal; view and print |
-
-Use the same Universal Theme page, region and button templates as Pages
-520–522. On Page 524 use three regions: **Employee and Current Contract**,
-**Extension Details**, and a collapsible **Manual Changes (Optional)** salary
-grid. Keep the new end date, reason and additional terms in Extension Details.
-Show totals as display-only items. No salary method, grade, scale or step selector.
-
-Flow: Register → Prepare/New Extension → Entry → Final Submit → Letter.
-Only DRAFT and POSTED statuses; no approval workflow.
-
-## Extension rules
-
-- Probationary (EMP_TYPE = 1) and contractual (EMP_TYPE = 3) employees are eligible.
-- Grade, non-grade, scale, step and salary structure do not determine eligibility.
-- Current salary amounts are copied exactly. No increment, step advancement,
-  allowance, bonus, leave entitlement or other benefit is granted automatically.
-- Any exception/change must be entered manually by HR, including Basic or a new
-  salary head. Leave/bonus settings in other modules require their own manual entry.
-- Existing benefits continue unless HR explicitly changes them.
-- New start is current end + 1 day; HR enters the new end date.
-- For a first probation extension, use JOIN_DATE / CONFIRMATION_DUE_DATE.
-  For a contractual employee without recorded dates, use New Extension and enter
-  the current term manually.
-- Posting a probation extension updates CONFIRMATION_DUE_DATE, retaining the
-  probation category. Extension is not employment confirmation.
-- Future terms can be saved as drafts; post on/after the extended start date,
-  because manually entered payroll changes are applied immediately.
-- A posted extension is read-only. Unchanged salary rows are never updated.
-- The letter states that extension grants no automatic benefit. Additional terms
-  are plain text, escaped for printing. New letters use the English extension
-  template for every grade and non-grade employee.
-
-Both modules use the existing HR_EMPLOYEE_CONTRACT as the current term, and
-existing employee/salary/letter/signatory masters. Extension does not recreate
-that table or write an extension ID into LATEST_RENEWAL_ID. Extension history is
-stored in HR_CONTRACT_EXTENSION; renewal history stays in HR_CONTRACT_RENEWAL.
-The generic employee letter gains a separate CONTRACT_EXTENSION_ID link.
-
-Finish or delete an employee's open renewal draft before preparing/posting an
-extension. If renewal changes the current term after an extension draft was
-prepared, extension posting rejects the stale draft. Deleting an extension
-draft retains the shared current contract record.
-
-## Install and page setup
-
-Install the existing renewal database objects first, then run this folder's
-scripts as HRMS in SQLcl/SQL*Plus:
+The shared HR employee/action/letter/signatory infrastructure must already exist.
+Run as HRMS in SQLcl/SQL*Plus from this folder:
 
 ```sql
+-- New extension installation:
 @00_install.sql
-@99_contract_extension_checks.sql
+-- Or, update an existing installation:
+@00_upgrade_dates_only.sql
 ```
 
-The installer adds extension objects and extension-only templates. It does not
-execute the renewal installer or merge renewal templates. These are SQL and
-Page Designer snippets, not importable APEX page exports. Use each block in:
+For SQL Workshop script order, see the page-by-page guide. Run the database
+update before using the new page snippets; it adds EXTEND_CONFIRMATION_DATE.
+The package owns no commit. Its new Save API wraps date update, history and
+letter generation in one savepoint; failure rolls the operation back entirely.
+It checks the displayed old date under an employee lock before saving.
 
-- page_523_contract_extension_register.sql
-- page_524_contract_extension_entry.sql
-- page_525_contract_extension_letter.sql
+Unconfirmed probationary/contractual employees (EMP_TYPE 1/3) with an existing
+confirmation due date are eligible; separated/confirmed employees are excluded.
+The new date must be later. Extension does not set CONF_DATE or change employment
+type/probation months. Internal start-date and salary columns/APIs remain only
+for compatibility; the new UI exposes none of them. Old salary proposals are
+ignored. Existing contracts are never read, created or updated by the package.
 
-Use CONTRACT_EXTEND_VIEW, CONTRACT_EXTEND_EDIT and CONTRACT_EXTEND_POST
-authorization schemes, and apply them to server processes as well as buttons.
-The authenticated numeric USER_ID maps to USERS_COMPANY.EMPID for company access;
-adapt that mapping if your login uses a different key. Protect USER_ID and the
-hidden IDs/version, and require session checksums for page links.
+Use the existing CONTRACT_EXTEND_VIEW/EDIT/POST role schemes and authenticated
+numeric USER_ID mapped to USERS_COMPANY.EMPID. Apply checks to processes and
+links as described in the guide. Require an active letter signatory.
 
-All date items use DD-MON-YYYY. Make P524_SIGNATORY_ID required; default to the
-first active HR_LETTER_SIGNATORY by DISPLAY_ORDER. On employee selection, run
-the date-loading action followed by the start/end-date calculation action.
-Display extra employee LOV values for existing records.
+## Checks
 
-Save/Final Submit process order: validate access and lock/check version (5),
-custom salary grid DML (10), save header/totals (20), final submit (30).
-Use the supplied custom grid process; hide its standalone Save toolbar action.
-Skip unsaved grid/header processing on Refresh Salary and Delete Draft.
-Return to Page 524 after save/refresh and Page 525 after posting, passing the
-extension/company IDs and clearing target-page cache.
-
-On Page 525 add:
-
-```javascript
-function printContractLetter() { window.print(); }
-```
-
-The package does not commit. Let APEX roll back the complete request on failure.
-Use the same letterhead/page templates as renewal. The new letter template
-codes are CONTRACT_EXTENSION_EN and CONTRACT_EXTENSION_BN; existing
-CONTRACT_RENEWAL_EN/BN are preserved.
-
-## Verification
-
-Source checks are provided separately from database execution. In a disposable
-HRMS test database, run the rollback regression using an eligible, authorized
-employee with recorded dates ending before today and no open renewal/extension:
-
-```sql
-@98_test_contract_extension.sql employee_internal_id authenticated_user_id
-```
-
-It verifies exact copying/manual posting, non-grade/no-salary eligibility,
-unchanged salary history, explicit new heads, stale salary/type/version checks,
-issued extension letters and posted-record protection. All test DML is rolled
-back; sequence/identity values are consumed. It also checks that renewal rows
-and renewal letter templates are unchanged.
-
-In APEX verify company access, expired versus closed contracts, optional manual
-changes, future drafts, printing, and an unchanged renewal on Pages 520–522.
+Run 99_contract_extension_checks.sql after installation. In a disposable HRMS
+database, use 98_test_contract_extension.sql employee_internal_id user_id. It
+checks unchanged employee/contract/payroll data, extension history and letters,
+stale-date/type/version protection and the one-Save API, including full rollback
+on a letter-generation failure. All test DML rolls back; identity values are
+consumed. Runtime tests need an HRMS database connection.

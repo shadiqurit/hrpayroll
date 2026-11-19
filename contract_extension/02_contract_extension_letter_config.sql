@@ -122,28 +122,24 @@ END;
 /
 
 /* Simple English body for any eligible employee. Page 525 supplies the header, employee address,
-   salary rows, signature and copy list. */
+   signature and copy list; no salary breakdown is needed. */
 MERGE INTO HRMS.HR_LETTER_TEMPLATE t
 USING (
     SELECT 'CONTRACT_EXTENSION_EN' template_code,
            'English Contract Extension Letter' template_name,
            'CONTRACT_EXTENSION' action_type,
-           'Contract Extension' subject_template,
+           'Extension of Confirmation Due Date' subject_template,
            TO_CLOB(q'~
-<p>Dear #EMP_NAME#,</p>
-<p>The management of #COMPANY_NAME# has extended your #EMPLOYMENT_TYPE#
-appointment. The extended term will run from
-<strong>#NEW_FROM_DATE#</strong> to <strong>#NEW_TO_DATE#</strong>.</p>
-<p>This extension does not automatically grant any increase, allowance, bonus,
-leave entitlement or other benefit. Existing terms continue except for changes
-expressly recorded by HR below.</p>
-<p><strong>Recorded monthly salary and allowances:</strong></p>
-#SALARY_DETAILS#
-<p><strong>Additional terms entered by HR:</strong></p>
-<p>#SPECIAL_TERMS#</p>
-<p>Your employment category remains unchanged. A probation extension does not
-constitute confirmation of employment.</p>
-<p>All other existing terms and conditions remain unchanged.</p>
+<p>Janab,<br>Assalamu Alaikum Wa Rahmatullah</p>
+<p>The management of #COMPANY_NAME# has decided to extend your confirmation due date.</p>
+<ol>
+<li>Your confirmation due date is extended from <strong>#CURRENT_TO_DATE#</strong>
+to <strong>#NEW_TO_DATE#</strong>. Employment confirmation remains pending.</li>
+<li>Your salary and other benefits will remain unchanged.</li>
+<li>All other existing terms and conditions, including your employment category,
+remain unchanged.</li>
+</ol>
+<p>May Allah, the Almighty, help us all. Ameen.<br>Ma-Assalam.</p>
 ~') body_template
       FROM dual
 ) s
@@ -171,16 +167,12 @@ USING (
            'চুক্তি নবায়ন' subject_template,
            TO_CLOB(q'~
 <p>জনাব,</p>
-<p>#COMPANY_NAME_BN#-এর ব্যবস্থাপনা কর্তৃপক্ষ আপনার নিয়োগের মেয়াদ বৃদ্ধি করেছেন। নবায়নকৃত মেয়াদ
-<strong>#NEW_FROM_DATE_BN#</strong> থেকে <strong>#NEW_TO_DATE_BN#</strong> পর্যন্ত।</p>
-<p>এই নবায়নের ফলে স্বয়ংক্রিয়ভাবে বেতন বৃদ্ধি, ভাতা, বোনাস, ছুটি বা অন্য কোনো
-সুবিধা প্রদান করা হবে না। এইচআর কর্তৃক লিখিত পরিবর্তন ছাড়া বিদ্যমান শর্ত বহাল থাকবে।</p>
-<p><strong>নথিভুক্ত মাসিক বেতন-ভাতা:</strong></p>
-#SALARY_DETAILS#
-<p><strong>এইচআর কর্তৃক লিখিত অতিরিক্ত শর্ত:</strong></p>
-<p>#SPECIAL_TERMS#</p>
-<p>নিয়োগের ধরন অপরিবর্তিত থাকবে। প্রবেশন মেয়াদ বৃদ্ধি চাকরি স্থায়ীকরণ নয়।</p>
-<p>অন্যান্য বিদ্যমান শর্ত অপরিবর্তিত থাকবে।</p>
+<p>#COMPANY_NAME_BN#-এর ব্যবস্থাপনা কর্তৃপক্ষ আপনার চাকরি স্থায়ীকরণের নির্ধারিত তারিখ
+<strong>#NEW_TO_DATE_BN#</strong> পর্যন্ত বৃদ্ধি করেছেন। চাকরি স্থায়ীকরণ অপেক্ষমাণ থাকবে।</p>
+<p>আপনার বেতন ও অন্যান্য সুবিধা অপরিবর্তিত থাকবে।</p>
+<p>প্রবেশন মেয়াদ বৃদ্ধির ক্ষেত্রে চাকরি স্থায়ীকরণের নির্ধারিত তারিখ
+<strong>#NEW_TO_DATE_BN#</strong> পর্যন্ত বৃদ্ধি পাবে; চাকরি স্থায়ীকরণ অপেক্ষমাণ থাকবে।</p>
+<p>নিয়োগের ধরন ও অন্যান্য বিদ্যমান শর্ত অপরিবর্তিত থাকবে।</p>
 ~') body_template
       FROM dual
 ) s
