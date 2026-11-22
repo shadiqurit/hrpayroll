@@ -15,8 +15,11 @@ CREATE OR REPLACE PACKAGE HRMS.pkg_m_att_approval AUTHID DEFINER AS
         p_action VARCHAR2, p_comments VARCHAR2 DEFAULT NULL);
 END pkg_m_att_approval;
 /
+
 CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
     g_workflow_write BOOLEAN := FALSE;
+    TYPE t_step IS RECORD (role_code VARCHAR2(50), employee_id NUMBER);
+    TYPE t_route IS TABLE OF t_step INDEX BY PLS_INTEGER;
     FUNCTION workflow_write_allowed RETURN BOOLEAN IS
     BEGIN
         RETURN g_workflow_write;
@@ -37,8 +40,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
             RAISE_APPLICATION_ERROR(-20811, 'Reason must fit within 200 bytes.');
         END IF;
     END;
-    TYPE t_step IS RECORD (role_code VARCHAR2(50), employee_id NUMBER);
-    TYPE t_route IS TABLE OF t_step INDEX BY PLS_INTEGER;
     FUNCTION role_employee(p_company_id NUMBER, p_role VARCHAR2,
                            p_required BOOLEAN DEFAULT TRUE) RETURN NUMBER IS
         l_id NUMBER;
