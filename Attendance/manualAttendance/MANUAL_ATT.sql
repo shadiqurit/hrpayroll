@@ -34,8 +34,6 @@ STORAGE    (
 LOGGING
 NOCOMPRESS
 NOCACHE;
-
-
 ALTER TABLE MANUAL_ATT ADD (
   PRIMARY KEY
   (ID)
@@ -53,11 +51,8 @@ ALTER TABLE MANUAL_ATT ADD (
                 BUFFER_POOL      DEFAULT
                )
   ENABLE VALIDATE);
-
-
 --  There is no statement for index HRMS.SYS_C0020020.
 --  The object is created when the parent object is created.
-
 @@TRG_MANUAL_ATT_DATE.sql
 @@TRG_MANUAL_ATT_PK.sql
 ALTER TABLE MANUAL_ATT ADD (

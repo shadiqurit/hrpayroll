@@ -7,7 +7,6 @@ WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 ACCEPT test_company_id NUMBER PROMPT 'Test company ID: '
 ACCEPT test_employee_id NUMBER PROMPT 'Test active ordinary employee ID: '
 ACCEPT test_att_date CHAR PROMPT 'Existing attendance date (YYYY-MM-DD): '
-
 DECLARE
     l_company NUMBER := &test_company_id;
     l_employee NUMBER := &test_employee_id;
@@ -25,20 +24,17 @@ DECLARE
     l_status VARCHAR2(20);
     l_stage VARCHAR2(1);
     l_errors NUMBER := 0;
-
     PROCEDURE assert_true(p_ok BOOLEAN, p_message VARCHAR2) IS
     BEGIN
         IF p_ok IS NULL OR NOT p_ok THEN
             RAISE_APPLICATION_ERROR(-20990, 'FAIL: ' || p_message);
         END IF;
     END;
-
     PROCEDURE assert_state(p_id NUMBER, p_status VARCHAR2, p_stage VARCHAR2) IS
     BEGIN
         SELECT status, request_status INTO l_status, l_stage FROM manual_att WHERE id = p_id;
         assert_true(l_status = p_status AND l_stage = p_stage, 'Request state ' || p_status || '/' || p_stage);
     END;
-
     PROCEDURE expect_action_error(p_actor NUMBER, p_company NUMBER, p_action VARCHAR2, p_code NUMBER) IS
     BEGIN
         pkg_m_att_approval.take_action(l_id, p_company, p_actor, p_action, 'Expected error');
@@ -47,7 +43,6 @@ DECLARE
         IF SQLCODE <> p_code THEN RAISE; END IF;
         l_errors := l_errors + 1;
     END;
-
     PROCEDURE new_draft IS
     BEGIN
         l_id := NULL;
@@ -57,7 +52,6 @@ DECLARE
         SELECT COUNT(*) INTO l_count FROM m_att_app_history WHERE m_att_id = l_id;
         assert_true(l_count = 0, 'Draft has no approval route');
     END;
-
     PROCEDURE submit_and_recommend IS
     BEGIN
         pkg_m_att_approval.submit_request(l_id, l_company, l_employee);
@@ -94,7 +88,6 @@ BEGIN
        AND attendance_date >= l_date AND attendance_date < l_date + 1;
     UPDATE attendance_details SET in_time = l_date + 10/24, out_time = l_date + 16/24
      WHERE attendance_id = l_target;
-
     -- Draft edit/delete and validation.
     SAVEPOINT draft_case;
     new_draft;
@@ -110,7 +103,6 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20991, 'Missing times accepted.');
     EXCEPTION WHEN OTHERS THEN IF SQLCODE <> -20826 THEN RAISE; END IF; END;
     ROLLBACK TO draft_case;
-
     -- Successful route: no attendance change until final approval.
     SAVEPOINT approve_case;
     new_draft;
@@ -134,7 +126,6 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20991, 'Duplicate date submitted.');
     EXCEPTION WHEN OTHERS THEN IF SQLCODE <> -20827 THEN RAISE; END IF; END;
     assert_state(l_other_id, 'D', 'D');
-
     pkg_m_att_approval.take_action(l_id, l_company, l_final, 'APPROVE', 'Final decision');
     assert_state(l_id, 'A', 'A');
     SELECT in_time, out_time INTO l_in, l_out FROM attendance_details WHERE attendance_id = l_target;
@@ -162,7 +153,6 @@ BEGIN
     assert_true(l_count = 1, 'Applicant sees approved/recorded with no pending actor');
     expect_action_error(l_hrd, l_company, 'RECORD', -20817);
     ROLLBACK TO approve_case;
-
     -- Rejection closes all waiting work and does not post.
     SAVEPOINT reject_case;
     new_draft;
@@ -176,7 +166,6 @@ BEGIN
     assert_true(l_in = l_date + 10/24 AND l_out = l_date + 16/24, 'Rejection does not post');
     expect_action_error(l_hrd, l_company, 'RECORD', -20817);
     ROLLBACK TO reject_case;
-
     -- Failed posting rolls back the decision/history while preserving caller work.
     SAVEPOINT failed_post_case;
     new_draft;
@@ -190,7 +179,6 @@ BEGIN
     SELECT COUNT(*) INTO l_count FROM attendance_details WHERE attendance_id = l_target;
     assert_true(l_count = 0, 'Failed action does not roll back earlier caller work');
     ROLLBACK TO failed_post_case;
-
     -- Explicit shift date survives an OUT-only overnight request and update.
     SAVEPOINT night_case;
     l_id := NULL;
@@ -200,7 +188,6 @@ BEGIN
     SELECT COUNT(*) INTO l_count FROM manual_att WHERE id = l_id AND att_date = l_date;
     assert_true(l_count = 1, 'Night OUT retains explicit shift date');
     ROLLBACK TO night_case;
-
     ROLLBACK TO manual_test_start;
     DBMS_OUTPUT.PUT_LINE('PASS: draft, validation, route, approval, recording, rejection, duplicate date, attendance posting, rollback and overnight date. Expected action errors: ' || l_errors);
 EXCEPTION WHEN OTHERS THEN

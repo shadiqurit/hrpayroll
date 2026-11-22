@@ -15,14 +15,12 @@ CREATE OR REPLACE PACKAGE HRMS.pkg_m_att_approval AUTHID DEFINER AS
         p_action VARCHAR2, p_comments VARCHAR2 DEFAULT NULL);
 END pkg_m_att_approval;
 /
-
 CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
     g_workflow_write BOOLEAN := FALSE;
     FUNCTION workflow_write_allowed RETURN BOOLEAN IS
     BEGIN
         RETURN g_workflow_write;
     END;
-
     PROCEDURE validate_times(p_date DATE, p_in DATE, p_out DATE, p_reason VARCHAR2) IS
     BEGIN
         IF p_date IS NULL OR (p_in IS NULL AND p_out IS NULL)
@@ -41,7 +39,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
     END;
     TYPE t_step IS RECORD (role_code VARCHAR2(50), employee_id NUMBER);
     TYPE t_route IS TABLE OF t_step INDEX BY PLS_INTEGER;
-
     FUNCTION role_employee(p_company_id NUMBER, p_role VARCHAR2,
                            p_required BOOLEAN DEFAULT TRUE) RETURN NUMBER IS
         l_id NUMBER;
@@ -60,7 +57,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
         WHEN TOO_MANY_ROWS THEN
             RAISE_APPLICATION_ERROR(-20803, 'Multiple active employees for company approval role: ' || p_role);
     END;
-
     FUNCTION reporting_person(p_empid NUMBER) RETURN NUMBER IS
         l_id NUMBER;
     BEGIN
@@ -73,7 +69,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
         WHEN TOO_MANY_ROWS THEN
             RAISE_APPLICATION_ERROR(-20821, 'Multiple active reporting-person assignments for applicant.');
     END;
-
     FUNCTION department_head(p_empid NUMBER, p_company_id NUMBER) RETURN NUMBER IS
         l_id NUMBER;
     BEGIN
@@ -88,7 +83,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
         WHEN TOO_MANY_ROWS THEN
             RAISE_APPLICATION_ERROR(-20822, 'Multiple department heads for applicant company/department.');
     END;
-
     FUNCTION is_department_head(p_empid NUMBER, p_company_id NUMBER) RETURN BOOLEAN IS
         l_count NUMBER;
     BEGIN
@@ -99,7 +93,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
            AND UPPER(TRIM(h.status)) = 'ACTIVE';
         RETURN l_count > 0;
     END;
-
     PROCEDURE check_actor(p_actor_id NUMBER) IS
         l_count NUMBER;
     BEGIN
@@ -108,7 +101,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
             RAISE_APPLICATION_ERROR(-20804, 'An active authenticated employee is required.');
         END IF;
     END;
-
     PROCEDURE check_local_approver(p_empid NUMBER, p_company_id NUMBER) IS
         l_count NUMBER;
     BEGIN
@@ -118,7 +110,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
             RAISE_APPLICATION_ERROR(-20823, 'RP/HOD must be an active employee in the applicant company.');
         END IF;
     END;
-
     PROCEDURE build_route(p_empid NUMBER, p_company_id NUMBER, p_route OUT t_route) IS
         l_plant NUMBER;
         l_md NUMBER;
@@ -181,7 +172,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
             END IF;
         END LOOP;
     END;
-
     PROCEDURE check_history(p_att_id NUMBER, p_company_id NUMBER) IS
         l_request manual_att%ROWTYPE;
         l_route t_route;
@@ -266,7 +256,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
             RAISE_APPLICATION_ERROR(-20820, 'Approval groups or request statuses are inconsistent; administrator review required.');
         END IF;
     END;
-
     PROCEDURE save_draft(
         p_att_id IN OUT NUMBER, p_company_id NUMBER, p_actor_id NUMBER,
         p_att_date DATE, p_intime DATE, p_outtime DATE,
@@ -314,7 +303,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
         p_att_id := l_original_id;
         RAISE;
     END;
-
     PROCEDURE delete_draft(p_att_id NUMBER, p_company_id NUMBER, p_actor_id NUMBER) IS
         l_request manual_att%ROWTYPE;
         l_company NUMBER;
@@ -341,7 +329,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
         ROLLBACK TO m_att_delete_start;
         RAISE;
     END;
-
     PROCEDURE submit_request(
         p_att_id NUMBER, p_company_id NUMBER, p_actor_id NUMBER) IS
         l_route t_route;
@@ -411,7 +398,6 @@ CREATE OR REPLACE PACKAGE BODY HRMS.pkg_m_att_approval AS
         ROLLBACK TO m_att_submit_start;
         RAISE;
     END;
-
     PROCEDURE take_action(
         p_att_id NUMBER, p_company_id NUMBER, p_actor_id NUMBER,
         p_action VARCHAR2, p_comments VARCHAR2 DEFAULT NULL) IS

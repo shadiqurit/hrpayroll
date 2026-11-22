@@ -3,7 +3,6 @@
 -- Oracle DDL commits. This installer preserves all existing requests/history.
 WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK
 SET SERVEROUTPUT ON
-
 DECLARE
     l_count NUMBER;
 BEGIN
@@ -24,16 +23,13 @@ BEGIN
     END IF;
 END;
 /
-
 BEGIN
     EXECUTE IMMEDIATE 'DROP TRIGGER HRMS.trg_manual_att_insert';
 EXCEPTION WHEN OTHERS THEN
     IF SQLCODE <> -4080 THEN RAISE; END IF;
 END;
 /
-
 @@TRG_MANUAL_ATT_DATE.sql
-
 DECLARE
     l_count NUMBER;
 BEGIN
@@ -69,7 +65,6 @@ BEGIN
     END IF;
 END;
 /
-
 @@TRG_MANUAL_ATT_PK.sql
 @@TRG_M_ATT_APP_HISTORY_PK.sql
 @@../P_ATT_UPDATE_DETAILS.sql
@@ -81,14 +76,12 @@ END;
 @@V_M_ATT_APPROVAL.sql
 @@forwardManualAtt.sql
 @@P_ATT_REBUILD_MANUAL.sql
-
 SELECT name, type, line, position, text FROM user_errors
  WHERE name IN ('PKG_M_ATT_APPROVAL', 'POST_MANUAL_ATTENDANCE', 'P_ATT_REBUILD_MANUAL',
                 'P_ATT_UPDATE_DETAILS', 'TRG_MANUAL_ATT_PK', 'TRG_M_ATT_APP_HISTORY_PK',
                 'TRG_MANUAL_ATT_DATE', 'TRG_MANUAL_ATT_GUARD', 'FORWARD_ATTENDANCE_APPROVAL',
                 'V_M_ATT_APPROVAL_STEPS', 'V_M_ATT_APPROVAL', 'V_M_ATT_REPORT')
    AND attribute = 'ERROR' ORDER BY name, sequence;
-
 DECLARE
     l_count NUMBER;
 BEGIN

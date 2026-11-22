@@ -6,7 +6,6 @@ SET LINESIZE 240
 SET PAGESIZE 200
 DEFINE att_emp_id = '&1'
 DEFINE att_day = '&2'
-
 PROMPT 1. Current employee mapping and target-date source counts
 SELECT e.id, e.emp_id AS employee_code, e.mc_id, e.com_id, e.branch_id,
        (SELECT COUNT(*) FROM HRMS.v_att_gen g
@@ -21,7 +20,6 @@ SELECT e.id, e.emp_id AS employee_code, e.mc_id, e.com_id, e.branch_id,
            AS stored_attendance_rows
   FROM HRMS.employees e
  WHERE e.id = TO_NUMBER('&&att_emp_id');
-
 PROMPT 2. Actual attendance, including neighbouring days
 SELECT d.attendance_id, d.emp_id, d.mc_id,
        TO_CHAR(d.attendance_date, 'YYYY-MM-DD') AS attendance_day,
@@ -35,7 +33,6 @@ SELECT d.attendance_id, d.emp_id, d.mc_id,
    AND d.attendance_date >= TO_DATE('&&att_day', 'YYYY-MM-DD') - 1
    AND d.attendance_date < TO_DATE('&&att_day', 'YYYY-MM-DD') + 2
  ORDER BY d.attendance_date, d.attendance_id;
-
 PROMPT 3. Unranked source schedules in the rebuild context
 SELECT g.emp_id, g.mc_id, g.com_id,
        TO_CHAR(g.attendance_date, 'YYYY-MM-DD') AS schedule_day,
@@ -46,7 +43,6 @@ SELECT g.emp_id, g.mc_id, g.com_id,
    AND g.attendance_date >= TO_DATE('&&att_day', 'YYYY-MM-DD') - 2
    AND g.attendance_date < TO_DATE('&&att_day', 'YYYY-MM-DD') + 3
  ORDER BY g.attendance_date, g.regular_in_time;
-
 PROMPT 4. Deployed objects and procedure parameters
 SELECT owner, object_name, object_type, status, last_ddl_time
   FROM all_objects
@@ -54,7 +50,6 @@ SELECT owner, object_name, object_type, status, last_ddl_time
    AND object_name IN ('V_ATT_GEN1', 'V_ATT_GEN', 'V_ATT_GEN2', 'P_ATT_SCHEDULE',
                        'P_ATT_CONT_SHIFT_FAST', 'P_ATT_UPDATE_DETAILS', 'P_ATT_REBUILD_MACHINE')
  ORDER BY object_name;
-
 SELECT object_name, argument_name, position, data_type, defaulted
   FROM all_arguments
  WHERE owner = 'HRMS'
@@ -62,7 +57,6 @@ SELECT object_name, argument_name, position, data_type, defaulted
    AND object_name IN ('P_ATT_SCHEDULE', 'P_ATT_UPDATE_DETAILS',
                        'P_ATT_CONT_SHIFT_FAST', 'P_ATT_REBUILD_MACHINE')
  ORDER BY object_name, sequence;
-
 SELECT name, type, line, position, text
   FROM all_errors
  WHERE owner = 'HRMS'
@@ -70,7 +64,6 @@ SELECT name, type, line, position, text
                 'P_ATT_CONT_SHIFT_FAST', 'P_ATT_UPDATE_DETAILS', 'P_ATT_REBUILD_MACHINE')
    AND attribute = 'ERROR'
  ORDER BY name, sequence;
-
 PROMPT 5. Machine punch filters and exact boundary ownership
 -- The production boundary/assignment CTEs are inserted below. The date context
 -- matches rebuilding the single requested day through P_ATT_REBUILD_MACHINE.
@@ -88,25 +81,19 @@ WITH source_schedule AS
               FROM
               (
                   SELECT g.emp_id,
-
                          TRIM(TO_CHAR(g.mc_id))
                              AS mc_key,
-
                          TRUNC(g.attendance_date)
                              AS attendance_date,
-
                          CAST(g.regular_in_time AS DATE)
                              AS regular_in_time,
-
                          CAST(g.regular_out_time AS DATE)
                              AS regular_out_time,
-
                          ROW_NUMBER() OVER
                          (
                              PARTITION BY
                                  g.emp_id,
                                  TRUNC(g.attendance_date)
-
                              ORDER BY
                                  CASE
                                      WHEN g.regular_in_time IS NULL
@@ -115,16 +102,13 @@ WITH source_schedule AS
                                  END,
                                  g.regular_in_time
                          ) AS rn
-
                     FROM HRMS.v_att_gen g
-
                    WHERE g.emp_id = TO_NUMBER('&&att_emp_id')
                      AND g.attendance_date >= (TO_DATE('&&att_day', 'YYYY-MM-DD') - 1) - 1
                      AND g.attendance_date <  (TO_DATE('&&att_day', 'YYYY-MM-DD') + 2) + 1
               )
              WHERE rn = 1
         ),
-
         /* Every shift creates one IN boundary and one OUT boundary */
         schedule_boundaries AS
         (
@@ -137,9 +121,7 @@ WITH source_schedule AS
               FROM source_schedule s
              WHERE s.regular_in_time IS NOT NULL
                AND s.regular_out_time IS NOT NULL
-
             UNION ALL
-
             SELECT s.emp_id,
                    s.mc_key,
                    s.attendance_date,
@@ -150,12 +132,10 @@ WITH source_schedule AS
              WHERE s.regular_in_time IS NOT NULL
                AND s.regular_out_time IS NOT NULL
         ),
-
         /* Find previous and next scheduled boundaries */
         ordered_boundaries AS
         (
             SELECT b.*,
-
                    LAG(b.target_time) OVER
                    (
                        PARTITION BY b.mc_key
@@ -163,7 +143,6 @@ WITH source_schedule AS
                                 b.boundary_order,
                                 b.attendance_date
                    ) AS previous_target,
-
                    LEAD(b.target_time) OVER
                    (
                        PARTITION BY b.mc_key
@@ -171,21 +150,15 @@ WITH source_schedule AS
                                 b.boundary_order,
                                 b.attendance_date
                    ) AS next_target
-
               FROM schedule_boundaries b
         ),
-
         /*
            Each boundary owns the time between the midpoint of its
            previous boundary and the midpoint of its next boundary.
-
            Example:
-
            21-Jul OUT target = 10:00 PM
            22-Jul IN target  = 06:00 AM
-
            Midpoint = 02:00 AM
-
            Therefore:
            - Punch before 02:00 AM belongs to 21-Jul OUT
            - Punch after 02:00 AM belongs to 22-Jul IN
@@ -197,16 +170,13 @@ WITH source_schedule AS
                    o.attendance_date,
                    o.boundary_type,
                    o.target_time,
-
                    CASE
                        WHEN o.previous_target IS NULL
                        THEN o.target_time - (8 / 24)
-
                        ELSE
                            GREATEST
                            (
                                o.target_time - (8 / 24),
-
                                o.previous_target
                                +
                                (
@@ -215,16 +185,13 @@ WITH source_schedule AS
                                ) / 2
                            )
                    END AS window_start,
-
                    CASE
                        WHEN o.next_target IS NULL
                        THEN o.target_time + (8 / 24)
-
                        ELSE
                            LEAST
                            (
                                o.target_time + (8 / 24),
-
                                o.target_time
                                +
                                (
@@ -233,26 +200,20 @@ WITH source_schedule AS
                                ) / 2
                            )
                    END AS window_end
-
               FROM ordered_boundaries o
         ),
-
         /* Read every raw fingerprint punch separately */
         raw_punches AS
         (
             SELECT DISTINCT
                    TRIM(TO_CHAR(m.userid)) AS mc_key,
                    CAST(m.atttime AS DATE) AS punch_time
-
               FROM HRMS.att_mcdata m
-
              WHERE m.atttime >= (TO_DATE('&&att_day', 'YYYY-MM-DD') - 1) - 1
                AND m.atttime <  (TO_DATE('&&att_day', 'YYYY-MM-DD') + 2) + 1
-
                /* Keep only successful/active punches */
                AND TRIM(TO_CHAR(m.status)) = '1'
         ),
-
         /*
            Assign each punch to one non-overlapping boundary window.
         */
@@ -264,22 +225,17 @@ WITH source_schedule AS
                    b.boundary_type,
                    b.target_time,
                    p.punch_time,
-
                    ABS
                    (
                        p.punch_time -
                        b.target_time
                    ) AS distance_from_target
-
               FROM boundary_windows b
-
                    JOIN raw_punches p
                        ON p.mc_key = b.mc_key
-
                       AND p.punch_time >= b.window_start
                       AND p.punch_time <  b.window_end
         ),
-
         /*
            If multiple punches exist near the same IN or OUT boundary,
            choose the punch nearest to the scheduled time.
@@ -287,33 +243,27 @@ WITH source_schedule AS
         boundary_ranked AS
         (
             SELECT c.*,
-
                    ROW_NUMBER() OVER
                    (
                        PARTITION BY
                            c.emp_id,
                            c.attendance_date,
                            c.boundary_type
-
                        ORDER BY
                            c.distance_from_target,
-
                            CASE
                                WHEN c.boundary_type = 'I'
                                THEN c.punch_time
                                ELSE NULL
                            END,
-
                            CASE
                                WHEN c.boundary_type = 'O'
                                THEN c.punch_time
                                ELSE NULL
                            END DESC
                    ) AS rn
-
               FROM punch_candidates c
         ),
-
         selected_boundaries AS
         (
             SELECT emp_id,
@@ -323,13 +273,11 @@ WITH source_schedule AS
               FROM boundary_ranked
              WHERE rn = 1
         ),
-
         /* Convert boundary rows into attendance IN and OUT columns */
         assigned_punches AS
         (
             SELECT emp_id,
                    attendance_date,
-
                    MAX
                    (
                        CASE
@@ -337,7 +285,6 @@ WITH source_schedule AS
                            THEN punch_time
                        END
                    ) AS selected_in_time,
-
                    MAX
                    (
                        CASE
@@ -345,12 +292,10 @@ WITH source_schedule AS
                            THEN punch_time
                        END
                    ) AS selected_out_time
-
               FROM selected_boundaries
              GROUP BY emp_id,
                       attendance_date
         ),
-
 diagnostic_raw AS
         (
             SELECT DISTINCT m.userid, TRIM(TO_CHAR(m.userid)) AS mc_key,
@@ -391,6 +336,5 @@ diagnostic_raw AS
            AND chosen.boundary_type = b.boundary_type
            AND chosen.punch_time = r.punch_time
          ORDER BY r.punch_time, r.device_id, b.attendance_date, b.boundary_type;
-
 UNDEFINE att_emp_id
 UNDEFINE att_day

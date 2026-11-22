@@ -30,8 +30,6 @@ STORAGE    (
 LOGGING
 NOCOMPRESS
 NOCACHE;
-
-
 ALTER TABLE M_ATT_APP_HISTORY ADD (
   PRIMARY KEY
   (ID)
@@ -49,11 +47,8 @@ ALTER TABLE M_ATT_APP_HISTORY ADD (
                 BUFFER_POOL      DEFAULT
                )
   ENABLE VALIDATE);
-
-
 --  There is no statement for index HRMS.SYS_C0020023.
 --  The object is created when the parent object is created.
-
 @@TRG_M_ATT_APP_HISTORY_PK.sql
 ALTER TABLE M_ATT_APP_HISTORY ADD (
   FOREIGN KEY (M_ATT_ID)

@@ -13,9 +13,7 @@ AS
           FROM HRMS.office_schedule o
          WHERE o.schedule_start_date < TRUNC(SYSDATE) + 2
         HAVING COUNT(*) > 0
-
         UNION ALL
-
         SELECT day_date + 1
           FROM date_series
          WHERE day_date + 1 <= TRUNC(SYSDATE) + 1

@@ -1,15 +1,10 @@
--- Run as a SQL*Plus/SQLcl script in a TEST HRMS schema first.
--- Machine foundation only: manual attendance / leave / short leave are pending.
--- DDL commits: finish unrelated transactions before installation.
 SET SERVEROUTPUT ON
 WHENEVER SQLERROR EXIT FAILURE ROLLBACK
-
 @@V_ATT_GEN1.sql
 @@P_ATT_SCHEDULE.sql
 @@P_ATT_CONT_SHIFT_FAST.sql
 @@P_ATT_UPDATE_DETAILS.sql
 @@P_ATT_REBUILD_MACHINE.sql
-
 SELECT name, type, line, position, text
   FROM all_errors
  WHERE owner = 'HRMS'
@@ -17,7 +12,6 @@ SELECT name, type, line, position, text
                 'P_ATT_UPDATE_DETAILS', 'P_ATT_REBUILD_MACHINE')
    AND attribute = 'ERROR'
  ORDER BY name, sequence;
-
 DECLARE
     l_invalid NUMBER;
 BEGIN

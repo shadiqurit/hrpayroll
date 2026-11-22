@@ -8,7 +8,6 @@ IS
     /*
        Default processing:
        Yesterday through today.
-
        p_to_date is inclusive.
     */
     l_from_date DATE := TRUNC(NVL(p_from_date, SYSDATE - 1));
@@ -46,7 +45,6 @@ BEGIN
                      CAST(g.regular_out_time AS DATE)
                          AS regular_out_time,
                      g.com_id,
-
                      ROW_NUMBER() OVER
                      (
                          PARTITION BY g.emp_id,
@@ -70,7 +68,6 @@ BEGIN
               ad.emp_id = src.emp_id
           AND TRUNC(ad.attendance_date) = src.attendance_date
        )
-
     WHEN MATCHED THEN
         UPDATE
            SET ad.mc_id            = src.mc_id,
@@ -88,7 +85,6 @@ BEGIN
                          src.regular_in_time, 0, 1) = 1
                OR DECODE(ad.regular_out_time,
                          src.regular_out_time, 0, 1) = 1
-
     WHEN NOT MATCHED THEN
         INSERT
         (
@@ -112,10 +108,8 @@ BEGIN
             src.regular_out_time,
             src.com_id
         );
-
     /* ============================================================
        2. Assign every raw ATT_MCDATA punch shift-wise
-
        Do not use V_FPUNCH_LPUNC here because it loses intermediate
        punches when an employee changes shifts.
        ============================================================ */
@@ -136,25 +130,19 @@ BEGIN
               FROM
               (
                   SELECT g.emp_id,
-
                          TRIM(TO_CHAR(g.mc_id))
                              AS mc_key,
-
                          TRUNC(g.attendance_date)
                              AS attendance_date,
-
                          CAST(g.regular_in_time AS DATE)
                              AS regular_in_time,
-
                          CAST(g.regular_out_time AS DATE)
                              AS regular_out_time,
-
                          ROW_NUMBER() OVER
                          (
                              PARTITION BY
                                  g.emp_id,
                                  TRUNC(g.attendance_date)
-
                              ORDER BY
                                  CASE
                                      WHEN g.regular_in_time IS NULL
@@ -163,15 +151,12 @@ BEGIN
                                  END,
                                  g.regular_in_time
                          ) AS rn
-
                     FROM HRMS.v_att_gen g
-
                    WHERE g.attendance_date >= l_from_date - 1
                      AND g.attendance_date <  l_to_date + 1
               )
              WHERE rn = 1
         ),
-
         /* Every shift creates one IN boundary and one OUT boundary */
         schedule_boundaries AS
         (
@@ -184,9 +169,7 @@ BEGIN
               FROM source_schedule s
              WHERE s.regular_in_time IS NOT NULL
                AND s.regular_out_time IS NOT NULL
-
             UNION ALL
-
             SELECT s.emp_id,
                    s.mc_key,
                    s.attendance_date,
@@ -197,12 +180,10 @@ BEGIN
              WHERE s.regular_in_time IS NOT NULL
                AND s.regular_out_time IS NOT NULL
         ),
-
         /* Find previous and next scheduled boundaries */
         ordered_boundaries AS
         (
             SELECT b.*,
-
                    LAG(b.target_time) OVER
                    (
                        PARTITION BY b.mc_key
@@ -210,7 +191,6 @@ BEGIN
                                 b.boundary_order,
                                 b.attendance_date
                    ) AS previous_target,
-
                    LEAD(b.target_time) OVER
                    (
                        PARTITION BY b.mc_key
@@ -218,21 +198,15 @@ BEGIN
                                 b.boundary_order,
                                 b.attendance_date
                    ) AS next_target
-
               FROM schedule_boundaries b
         ),
-
         /*
            Each boundary owns the time between the midpoint of its
            previous boundary and the midpoint of its next boundary.
-
            Example:
-
            21-Jul OUT target = 10:00 PM
            22-Jul IN target  = 06:00 AM
-
            Midpoint = 02:00 AM
-
            Therefore:
            - Punch before 02:00 AM belongs to 21-Jul OUT
            - Punch after 02:00 AM belongs to 22-Jul IN
@@ -244,16 +218,13 @@ BEGIN
                    o.attendance_date,
                    o.boundary_type,
                    o.target_time,
-
                    CASE
                        WHEN o.previous_target IS NULL
                        THEN o.target_time - (8 / 24)
-
                        ELSE
                            GREATEST
                            (
                                o.target_time - (8 / 24),
-
                                o.previous_target
                                +
                                (
@@ -262,16 +233,13 @@ BEGIN
                                ) / 2
                            )
                    END AS window_start,
-
                    CASE
                        WHEN o.next_target IS NULL
                        THEN o.target_time + (8 / 24)
-
                        ELSE
                            LEAST
                            (
                                o.target_time + (8 / 24),
-
                                o.target_time
                                +
                                (
@@ -280,26 +248,20 @@ BEGIN
                                ) / 2
                            )
                    END AS window_end
-
               FROM ordered_boundaries o
         ),
-
         /* Read every raw fingerprint punch separately */
         raw_punches AS
         (
             SELECT DISTINCT
                    TRIM(TO_CHAR(m.userid)) AS mc_key,
                    CAST(m.atttime AS DATE) AS punch_time
-
               FROM HRMS.att_mcdata m
-
              WHERE m.atttime >= l_from_date - 1
                AND m.atttime <  l_to_date + 1
-
                /* Keep only successful/active punches */
                AND TRIM(TO_CHAR(m.status)) = '1'
         ),
-
         /*
            Assign each punch to one non-overlapping boundary window.
         */
@@ -311,22 +273,17 @@ BEGIN
                    b.boundary_type,
                    b.target_time,
                    p.punch_time,
-
                    ABS
                    (
                        p.punch_time -
                        b.target_time
                    ) AS distance_from_target
-
               FROM boundary_windows b
-
                    JOIN raw_punches p
                        ON p.mc_key = b.mc_key
-
                       AND p.punch_time >= b.window_start
                       AND p.punch_time <  b.window_end
         ),
-
         /*
            If multiple punches exist near the same IN or OUT boundary,
            choose the punch nearest to the scheduled time.
@@ -334,33 +291,27 @@ BEGIN
         boundary_ranked AS
         (
             SELECT c.*,
-
                    ROW_NUMBER() OVER
                    (
                        PARTITION BY
                            c.emp_id,
                            c.attendance_date,
                            c.boundary_type
-
                        ORDER BY
                            c.distance_from_target,
-
                            CASE
                                WHEN c.boundary_type = 'I'
                                THEN c.punch_time
                                ELSE NULL
                            END,
-
                            CASE
                                WHEN c.boundary_type = 'O'
                                THEN c.punch_time
                                ELSE NULL
                            END DESC
                    ) AS rn
-
               FROM punch_candidates c
         ),
-
         selected_boundaries AS
         (
             SELECT emp_id,
@@ -370,13 +321,11 @@ BEGIN
               FROM boundary_ranked
              WHERE rn = 1
         ),
-
         /* Convert boundary rows into attendance IN and OUT columns */
         assigned_punches AS
         (
             SELECT emp_id,
                    attendance_date,
-
                    MAX
                    (
                        CASE
@@ -384,7 +333,6 @@ BEGIN
                            THEN punch_time
                        END
                    ) AS selected_in_time,
-
                    MAX
                    (
                        CASE
@@ -392,15 +340,12 @@ BEGIN
                            THEN punch_time
                        END
                    ) AS selected_out_time
-
               FROM selected_boundaries
              GROUP BY emp_id,
                       attendance_date
         ),
-
         /*
            Include every requested schedule row, including holidays.
-
            LEFT JOIN ensures an old incorrectly assigned punch is
            cleared when rebuilding attendance history.
         */
@@ -409,23 +354,18 @@ BEGIN
             SELECT d.attendance_id,
                    a.selected_in_time,
                    a.selected_out_time
-
               FROM HRMS.attendance_details d
-
                    JOIN source_schedule s
                        ON s.emp_id = d.emp_id
                       AND s.attendance_date =
                           TRUNC(d.attendance_date)
-
                    LEFT JOIN assigned_punches a
                        ON a.emp_id = s.emp_id
                       AND a.attendance_date =
                           s.attendance_date
-
              WHERE d.attendance_date >= l_from_date
                AND d.attendance_date <  l_to_date
         )
-
         SELECT attendance_id,
                selected_in_time,
                selected_out_time
@@ -435,12 +375,10 @@ BEGIN
        (
            ad.attendance_id = punch_src.attendance_id
        )
-
     WHEN MATCHED THEN
         UPDATE
            SET ad.in_time  = punch_src.selected_in_time,
                ad.out_time = punch_src.selected_out_time
-
          WHERE    DECODE
                   (
                       ad.in_time,
@@ -448,7 +386,6 @@ BEGIN
                       0,
                       1
                   ) = 1
-
                OR DECODE
                   (
                       ad.out_time,
@@ -456,11 +393,9 @@ BEGIN
                       0,
                       1
                   ) = 1;
-
     IF p_commit = 1 THEN
         COMMIT;
     END IF;
-
     EXCEPTION
         WHEN OTHERS THEN
             ROLLBACK TO att_schedule_start;
