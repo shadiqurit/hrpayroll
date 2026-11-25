@@ -501,8 +501,12 @@ WHEN MATCHED THEN
                    c.new_early_out,
                    /* =============================================
                       Attendance status priority
+                      If an employee has punches (new_in_time is set),
+                      they are Present ('P').
                       ============================================= */
                    CASE
+                       WHEN c.new_in_time IS NOT NULL
+                       THEN 'P'
                        WHEN c.shift_holiday_rank = 2
                        THEN 'H'
                        WHEN c.shift_holiday_rank = 1
@@ -511,8 +515,6 @@ WHEN MATCHED THEN
                        THEN 'W'
                        WHEN c.govt_holiday_flag = 1
                        THEN 'G'
-                       WHEN c.new_in_time IS NOT NULL
-                       THEN 'P'
                        ELSE 'A'
                    END AS new_status,
                    /* =============================================
@@ -520,6 +522,12 @@ WHEN MATCHED THEN
                       Existing manual remarks are preserved.
                       ============================================= */
                    CASE
+                       WHEN c.new_in_time IS NOT NULL AND c.shift_holiday_rank = 2
+                       THEN 'Shifting Holiday'
+                       WHEN c.new_in_time IS NOT NULL AND (c.shift_holiday_rank = 1 OR c.office_weekend_flag = 1)
+                       THEN 'Weekly Holiday'
+                       WHEN c.new_in_time IS NOT NULL AND c.govt_holiday_flag = 1
+                       THEN 'Govt. Holiday'
                        WHEN c.shift_holiday_rank = 2
                        THEN 'Shifting Holiday'
                        WHEN c.shift_holiday_rank = 1

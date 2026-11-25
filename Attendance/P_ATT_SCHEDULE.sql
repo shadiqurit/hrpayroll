@@ -23,6 +23,8 @@ BEGIN
     BEGIN
     /* ============================================================
        1. Generate employee schedule rows
+       Includes scheduled rosters/office days and any date on which
+       an employee has machine punch data.
        ============================================================ */
     MERGE INTO HRMS.attendance_details ad
     USING
@@ -36,30 +38,54 @@ BEGIN
                com_id
           FROM
           (
-              SELECT g.emp_id,
-                     g.mc_id,
-                     TRUNC(g.attendance_date) AS attendance_date,
-                     g.dayofweek,
-                     CAST(g.regular_in_time AS DATE)
-                         AS regular_in_time,
-                     CAST(g.regular_out_time AS DATE)
-                         AS regular_out_time,
-                     g.com_id,
+              SELECT all_src.emp_id,
+                     all_src.mc_id,
+                     all_src.attendance_date,
+                     all_src.dayofweek,
+                     all_src.regular_in_time,
+                     all_src.regular_out_time,
+                     all_src.com_id,
                      ROW_NUMBER() OVER
                      (
-                         PARTITION BY g.emp_id,
-                                      TRUNC(g.attendance_date)
+                         PARTITION BY all_src.emp_id,
+                                      all_src.attendance_date
                          ORDER BY
+                             all_src.src_prio,
                              CASE
-                                 WHEN g.regular_in_time IS NULL
+                                 WHEN all_src.regular_in_time IS NULL
                                  THEN 2
                                  ELSE 1
                              END,
-                             g.regular_in_time
+                             all_src.regular_in_time
                      ) AS rn
-                FROM HRMS.v_att_gen g
-               WHERE g.attendance_date >= l_from_date
-                 AND g.attendance_date <  l_to_date
+                FROM
+                (
+                    SELECT g.emp_id,
+                           g.mc_id,
+                           TRUNC(g.attendance_date) AS attendance_date,
+                           g.dayofweek,
+                           CAST(g.regular_in_time AS DATE) AS regular_in_time,
+                           CAST(g.regular_out_time AS DATE) AS regular_out_time,
+                           g.com_id,
+                           1 AS src_prio
+                      FROM HRMS.v_att_gen g
+                     WHERE g.attendance_date >= l_from_date
+                       AND g.attendance_date <  l_to_date
+                     UNION ALL
+                    SELECT e.id AS emp_id,
+                           e.mc_id,
+                           TRUNC(m.atttime) AS attendance_date,
+                           RTRIM(TO_CHAR(m.atttime, 'DAY')) AS dayofweek,
+                           CAST(NULL AS DATE) AS regular_in_time,
+                           CAST(NULL AS DATE) AS regular_out_time,
+                           e.com_id,
+                           2 AS src_prio
+                      FROM HRMS.att_mcdata m
+                      JOIN HRMS.employees e
+                        ON e.mc_id = m.userid
+                     WHERE m.atttime >= l_from_date
+                       AND m.atttime <  l_to_date
+                ) all_src
           )
          WHERE rn = 1
     ) src
@@ -75,16 +101,16 @@ BEGIN
                ad.com_id           = src.com_id,
                ad.regular_in_time  = src.regular_in_time,
                ad.regular_out_time = src.regular_out_time
-         WHERE    DECODE(ad.mc_id,
-                         src.mc_id, 0, 1) = 1
-               OR DECODE(ad.dayofweek,
-                         src.dayofweek, 0, 1) = 1
-               OR DECODE(ad.com_id,
-                         src.com_id, 0, 1) = 1
-               OR DECODE(ad.regular_in_time,
-                         src.regular_in_time, 0, 1) = 1
-               OR DECODE(ad.regular_out_time,
-                         src.regular_out_time, 0, 1) = 1
+          WHERE    DECODE(ad.mc_id,
+                          src.mc_id, 0, 1) = 1
+                OR DECODE(ad.dayofweek,
+                          src.dayofweek, 0, 1) = 1
+                OR DECODE(ad.com_id,
+                          src.com_id, 0, 1) = 1
+                OR DECODE(ad.regular_in_time,
+                          src.regular_in_time, 0, 1) = 1
+                OR DECODE(ad.regular_out_time,
+                          src.regular_out_time, 0, 1) = 1
     WHEN NOT MATCHED THEN
         INSERT
         (
@@ -112,6 +138,7 @@ BEGIN
        2. Assign every raw ATT_MCDATA punch shift-wise
        Do not use V_FPUNCH_LPUNC here because it loses intermediate
        punches when an employee changes shifts.
+       All punches are accepted (no status exclusion).
        ============================================================ */
     MERGE INTO HRMS.attendance_details ad
     USING
@@ -129,31 +156,49 @@ BEGIN
                    regular_out_time
               FROM
               (
-                  SELECT g.emp_id,
-                         TRIM(TO_CHAR(g.mc_id))
-                             AS mc_key,
-                         TRUNC(g.attendance_date)
-                             AS attendance_date,
-                         CAST(g.regular_in_time AS DATE)
-                             AS regular_in_time,
-                         CAST(g.regular_out_time AS DATE)
-                             AS regular_out_time,
+                  SELECT all_sched.emp_id,
+                         all_sched.mc_key,
+                         all_sched.attendance_date,
+                         all_sched.regular_in_time,
+                         all_sched.regular_out_time,
                          ROW_NUMBER() OVER
                          (
                              PARTITION BY
-                                 g.emp_id,
-                                 TRUNC(g.attendance_date)
+                                 all_sched.emp_id,
+                                 all_sched.attendance_date
                              ORDER BY
+                                 all_sched.src_prio,
                                  CASE
-                                     WHEN g.regular_in_time IS NULL
+                                     WHEN all_sched.regular_in_time IS NULL
                                      THEN 2
                                      ELSE 1
                                  END,
-                                 g.regular_in_time
+                                 all_sched.regular_in_time
                          ) AS rn
-                    FROM HRMS.v_att_gen g
-                   WHERE g.attendance_date >= l_from_date - 1
-                     AND g.attendance_date <  l_to_date + 1
+                    FROM
+                    (
+                        SELECT g.emp_id,
+                               TRIM(TO_CHAR(g.mc_id)) AS mc_key,
+                               TRUNC(g.attendance_date) AS attendance_date,
+                               CAST(g.regular_in_time AS DATE) AS regular_in_time,
+                               CAST(g.regular_out_time AS DATE) AS regular_out_time,
+                               1 AS src_prio
+                          FROM HRMS.v_att_gen g
+                         WHERE g.attendance_date >= l_from_date - 1
+                           AND g.attendance_date <  l_to_date + 1
+                         UNION ALL
+                        SELECT e.id AS emp_id,
+                               TRIM(TO_CHAR(e.mc_id)) AS mc_key,
+                               TRUNC(m.atttime) AS attendance_date,
+                               CAST(NULL AS DATE) AS regular_in_time,
+                               CAST(NULL AS DATE) AS regular_out_time,
+                               2 AS src_prio
+                          FROM HRMS.att_mcdata m
+                          JOIN HRMS.employees e
+                            ON e.mc_id = m.userid
+                         WHERE m.atttime >= l_from_date - 1
+                           AND m.atttime <  l_to_date + 1
+                    ) all_sched
               )
              WHERE rn = 1
         ),
@@ -259,8 +304,6 @@ BEGIN
               FROM HRMS.att_mcdata m
              WHERE m.atttime >= l_from_date - 1
                AND m.atttime <  l_to_date + 1
-               /* Keep only successful/active punches */
-               AND TRIM(TO_CHAR(m.status)) = '1'
         ),
         /*
            Assign each punch to one non-overlapping boundary window.
@@ -345,6 +388,34 @@ BEGIN
                       attendance_date
         ),
         /*
+           Fallback for punches not captured by boundary windows
+           (e.g., holidays, roster off-days, punches without schedule boundaries).
+        */
+        unassigned_punches AS
+        (
+            SELECT s.emp_id,
+                   s.attendance_date,
+                   MIN(p.punch_time) AS fallback_in_time,
+                   CASE
+                       WHEN COUNT(DISTINCT p.punch_time) > 1
+                       THEN MAX(p.punch_time)
+                       ELSE NULL
+                   END AS fallback_out_time
+              FROM source_schedule s
+                   JOIN raw_punches p
+                     ON p.mc_key = s.mc_key
+                    AND TRUNC(p.punch_time) = s.attendance_date
+             WHERE NOT EXISTS
+                   (
+                       SELECT 1
+                         FROM selected_boundaries sb
+                        WHERE sb.emp_id = s.emp_id
+                          AND sb.punch_time = p.punch_time
+                   )
+             GROUP BY s.emp_id,
+                      s.attendance_date
+        ),
+        /*
            Include every requested schedule row, including holidays.
            LEFT JOIN ensures an old incorrectly assigned punch is
            cleared when rebuilding attendance history.
@@ -352,8 +423,26 @@ BEGIN
         rebuild_source AS
         (
             SELECT d.attendance_id,
-                   a.selected_in_time,
-                   a.selected_out_time
+                   CASE
+                       WHEN a.selected_in_time IS NOT NULL
+                       THEN a.selected_in_time
+                       WHEN a.selected_out_time IS NOT NULL
+                        AND u.fallback_in_time < a.selected_out_time
+                       THEN u.fallback_in_time
+                       WHEN a.selected_out_time IS NULL
+                       THEN u.fallback_in_time
+                       ELSE NULL
+                   END AS selected_in_time,
+                   CASE
+                       WHEN a.selected_out_time IS NOT NULL
+                       THEN a.selected_out_time
+                       WHEN a.selected_in_time IS NOT NULL
+                        AND NVL(u.fallback_out_time, u.fallback_in_time) > a.selected_in_time
+                       THEN NVL(u.fallback_out_time, u.fallback_in_time)
+                       WHEN a.selected_in_time IS NULL
+                       THEN u.fallback_out_time
+                       ELSE NULL
+                   END AS selected_out_time
               FROM HRMS.attendance_details d
                    JOIN source_schedule s
                        ON s.emp_id = d.emp_id
@@ -362,6 +451,10 @@ BEGIN
                    LEFT JOIN assigned_punches a
                        ON a.emp_id = s.emp_id
                       AND a.attendance_date =
+                          s.attendance_date
+                   LEFT JOIN unassigned_punches u
+                       ON u.emp_id = s.emp_id
+                      AND u.attendance_date =
                           s.attendance_date
              WHERE d.attendance_date >= l_from_date
                AND d.attendance_date <  l_to_date

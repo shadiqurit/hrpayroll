@@ -14,13 +14,15 @@ calculates H/W/G/P/A using the existing rules.
   schedule through tomorrow, instead of the current month only. It also carries
   overnight office OUT times into the next date. `V_ATT_GEN` and `V_ATT_GEN2`
   already in your database remain prerequisites.
-- `P_ATT_SCHEDULE.sql` refreshes punches for NULL-boundary holiday schedules, so
-  changing a working roster day to holiday clears old machine punches. Successful
-  raw punches still mean `ATT_MCDATA.STATUS = 1`; `FLAG` does not restrict rereads.
+- `P_ATT_SCHEDULE.sql` accepts all machine punches from `ATT_MCDATA` without status
+  exclusion. If an employee punches on a holiday, roster off-day, or unscheduled date,
+  it assigns the punch to that date. Any employee with punch data in `ATT_MCDATA` is
+  guaranteed to have an attendance row created and assigned.
 - `P_ATT_UPDATE_DETAILS.sql` bridges missing boundaries before normalizing single
-  punches and calculating final metrics. Office weekends now match the employee's
-  branch as well as company. The missing-boundary rule is capped at a 24-hour span,
-  consistently with the separate continuous-shift procedure.
+  punches and calculating final metrics. If an employee has any punch (`new_in_time`
+  is set), status is always set to Present (`'P'`), taking priority over weekend and
+  holiday flags. Off-day/holiday duty remarks (e.g. `Weekly Holiday`, `Govt. Holiday`)
+  are retained for tracking.
 - All three existing procedures accept a trailing `p_commit` parameter. Its
   default is 1 for existing callers; pass 0 to leave transaction completion to the
   caller. Failures roll back only work after the procedure's savepoint.
@@ -109,9 +111,7 @@ with the employee's numeric `EMPLOYEES.ID` and attendance date, for example:
 Replace 123 with the actual employee database ID. The output shows current and
 stored machine mappings, source schedule counts, deployed objects/parameters,
 stored attendance, and each raw punch's status filter, assigned shift date,
-boundary window and selection. Punches with NULL or non-1 `STATUS` are excluded
-by the existing rule even if they exist in `ATT_MCDATA`. Their meaning must be
-confirmed before changing that filter. Source schedule count zero can explain
+boundary window and selection. All punches from `ATT_MCDATA` are accepted regardless of `STATUS`. Source schedule count zero can explain
 why an old attendance row is left untouched. This diagnostic changes no data.
 
 Run `node Attendance/tests/machine_rebuild.cjs` for local SQL regression checks.

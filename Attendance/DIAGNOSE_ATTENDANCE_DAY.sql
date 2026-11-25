@@ -211,8 +211,6 @@ WITH source_schedule AS
               FROM HRMS.att_mcdata m
              WHERE m.atttime >= (TO_DATE('&&att_day', 'YYYY-MM-DD') - 1) - 1
                AND m.atttime <  (TO_DATE('&&att_day', 'YYYY-MM-DD') + 2) + 1
-               /* Keep only successful/active punches */
-               AND TRIM(TO_CHAR(m.status)) = '1'
         ),
         /*
            Assign each punch to one non-overlapping boundary window.
@@ -315,15 +313,14 @@ diagnostic_raw AS
                TO_CHAR(r.punch_time, 'YYYY-MM-DD HH24:MI:SS') AS raw_punch,
                CASE WHEN r.userid = r.current_mc_id THEN 'CURRENT_EMPLOYEE_MC_ID'
                     ELSE 'STORED_ATTENDANCE_MC_ID_ONLY' END AS mapping,
-               CASE WHEN TRIM(TO_CHAR(r.status)) = '1' THEN 'ACCEPTED'
-                    ELSE 'EXCLUDED_STATUS' END AS status_gate,
+               'ACCEPTED' AS status_gate,
                TO_CHAR(b.attendance_date, 'YYYY-MM-DD') AS assigned_day,
                b.boundary_type,
                TO_CHAR(b.target_time, 'YYYY-MM-DD HH24:MI:SS') AS boundary_target,
                TO_CHAR(b.window_start, 'YYYY-MM-DD HH24:MI:SS') AS window_start,
                TO_CHAR(b.window_end, 'YYYY-MM-DD HH24:MI:SS') AS window_end,
                CASE WHEN b.target_time IS NULL THEN 'NO_MATCHING_WINDOW'
-                    WHEN TRIM(TO_CHAR(r.status)) = '1' AND chosen.punch_time IS NOT NULL
+                    WHEN chosen.punch_time IS NOT NULL
                     THEN 'SELECTED' ELSE 'NOT_SELECTED' END AS selection
           FROM diagnostic_raw r
           LEFT JOIN boundary_windows b
